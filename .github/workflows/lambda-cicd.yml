@@ -341,6 +341,50 @@ jobs:
             echo "Warning: Deployment report not found"
           fi
 
+      - name: Post-deployment health check
+        run: |
+          echo "Running post-deployment health checks..."
+          
+          # Wait for deployment to stabilize
+          sleep 30
+          
+          # Test Lambda function invocation
+          FUNCTION_NAME="lambda-function-${{ needs.setup.outputs.environment }}"
+          
+          echo "Testing Lambda function: $FUNCTION_NAME"
+          
+          # Invoke function with test payload
+          TEST_RESULT=$(aws lambda invoke \
+            --function-name "$FUNCTION_NAME" \
+            --payload '{"test": true, "source": "cicd-health-check"}' \
+            --region "${{ needs.setup.outputs.aws-region }}" \
+            response.json 2>&1 || echo "INVOKE_FAILED")
+          
+          if [[ "$TEST_RESULT" == *"INVOKE_FAILED"* ]]; then
+            echo "❌ Lambda function invocation failed"
+            echo "Error: $TEST_RESULT"
+            exit 1
+          fi
+          
+          # Check response
+          if [[ -f "response.json" ]]; then
+            echo "✅ Lambda function invocation successful"
+            echo "Response:"
+            cat response.json
+            
+            # Check for errors in response
+            if grep -q "errorMessage\|errorType" response.json; then
+              echo "❌ Lambda function returned an error"
+              cat response.json
+              exit 1
+            fi
+          else
+            echo "❌ No response file generated"
+            exit 1
+          fi
+          
+          echo "✅ Post-deployment health check passed"
+
       - name: Upload deployment artifacts
         uses: actions/upload-artifact@v4
         if: always()
@@ -352,10 +396,12 @@ jobs:
             signing-report.json
             package-manifest.json
 
-  # Rollback job (manual trigger)
+  # Automatic rollback job (triggers on deployment failure or manual trigger)
   rollback:
     runs-on: ubuntu-latest
-    if: failure() || github.event_name == 'workflow_dispatch'
+    needs: 
+      - deploy
+    if: always() && (needs.deploy.result == 'failure' || github.event_name == 'workflow_dispatch')
     environment:
       name: ${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}-rollback
     steps:
@@ -383,6 +429,16 @@ jobs:
 
       - name: Rollback to previous version
         run: |
+          echo "🔄 Starting automatic rollback process..."
+          echo "Deployment failure detected - initiating emergency rollback"
+          
+          # Log rollback trigger reason
+          if [[ "${{ needs.deploy.result }}" == "failure" ]]; then
+            echo "Rollback triggered by: Deployment job failure"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "Rollback triggered by: Manual workflow dispatch"
+          fi
+          
           # Use rollback script for emergency rollback
           chmod +x scripts/rollback-lambda-deployment.sh
 
@@ -392,6 +448,77 @@ jobs:
             --mode "emergency" \
             --region "${{ steps.env.outputs.aws-region }}" \
             --force
+          
+          echo "🔄 Rollback process completed"
+
+      - name: Verify rollback success
+        run: |
+          echo "🔍 Verifying rollback was successful..."
+          
+          # Test the rolled-back function
+          FUNCTION_NAME="lambda-function-${{ steps.env.outputs.environment }}"
+          
+          # Wait for rollback to stabilize
+          sleep 30
+          
+          # Test function invocation after rollback
+          TEST_RESULT=$(aws lambda invoke \
+            --function-name "$FUNCTION_NAME" \
+            --payload '{"test": true, "source": "rollback-verification"}' \
+            --region "${{ steps.env.outputs.aws-region }}" \
+            rollback-response.json 2>&1 || echo "ROLLBACK_TEST_FAILED")
+          
+          if [[ "$TEST_RESULT" == *"ROLLBACK_TEST_FAILED"* ]]; then
+            echo "❌ Rollback verification failed - function still not working"
+            echo "Error: $TEST_RESULT"
+            exit 1
+          fi
+          
+          if [[ -f "rollback-response.json" ]]; then
+            echo "✅ Rollback verification successful"
+            echo "Function response after rollback:"
+            cat rollback-response.json
+          fi
+          
+          echo "✅ Rollback completed and verified successfully"
+
+      - name: Notify rollback completion
+        if: always()
+        run: |
+          echo "📢 Rollback notification"
+          echo "Environment: ${{ steps.env.outputs.environment }}"
+          echo "Function: lambda-function-${{ steps.env.outputs.environment }}"
+          echo "Rollback Status: ${{ job.status }}"
+          echo "Triggered by: ${{ github.event_name }}"
+          echo "Commit: ${{ github.sha }}"
+          echo "Branch: ${{ github.ref }}"
+          
+          # Create rollback report
+          cat > rollback-report.json << EOF
+          {
+            "rollbackId": "${{ github.run_id }}-rollback",
+            "environment": "${{ steps.env.outputs.environment }}",
+            "functionName": "lambda-function-${{ steps.env.outputs.environment }}",
+            "rollbackStatus": "${{ job.status }}",
+            "triggeredBy": "${{ github.event_name }}",
+            "originalCommit": "${{ github.sha }}",
+            "branch": "${{ github.ref }}",
+            "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "deploymentFailureReason": "${{ needs.deploy.result }}"
+          }
+          EOF
+          
+          echo "Rollback report generated:"
+          cat rollback-report.json
+
+      - name: Upload rollback artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rollback-artifacts-${{ steps.env.outputs.environment }}
+          path: |
+            rollback-response.json
+            rollback-report.json
 
           # Check rollback report
           if [[ -f "rollback-report.json" ]]; then
