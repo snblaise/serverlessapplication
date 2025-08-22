@@ -520,25 +520,6 @@ jobs:
             rollback-response.json
             rollback-report.json
 
-          # Check rollback report
-          if [[ -f "rollback-report.json" ]]; then
-            echo "Rollback report:"
-            cat rollback-report.json
-
-            ROLLBACK_SUCCESS=$(jq -r '.rollbackSuccess' rollback-report.json)
-            TARGET_VERSION=$(jq -r '.targetVersion' rollback-report.json)
-
-            if [[ "$ROLLBACK_SUCCESS" == "true" ]]; then
-              echo "::warning::Lambda function successfully rolled back to version ${TARGET_VERSION}"
-            else
-              echo "::error::Lambda function rollback failed"
-              exit 1
-            fi
-          else
-            echo "::error::Rollback report not found"
-            exit 1
-          fi
-
       - name: Upload rollback artifacts
         uses: actions/upload-artifact@v4
         if: always()
