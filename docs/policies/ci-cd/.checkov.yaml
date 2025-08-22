@@ -47,37 +47,15 @@ check:
   - CKV_AWS_92  # ELB access logging is enabled
   - CKV_AWS_91  # Load Balancer access logging is enabled
 
-# Severity levels
-severity:
-  HIGH: error
-  MEDIUM: warning
-  LOW: info
+# Custom policies directory (if exists)
+# external-checks-dir:
+#   - ./custom-policies
 
-# Output configuration
-output:
-  - cli
-  - json
-  - junit
-  - sarif
-
-# Custom policies directory
-external-checks-dir:
-  - ./custom-policies
-
-# Baseline file for suppressing known issues
-baseline: .checkov.baseline
+# Baseline file for suppressing known issues (if exists)
+# baseline: .checkov.baseline
 
 # Compact output for CI/CD
 compact: true
 
 # Download external modules
 download-external-modules: true
-
-# Framework-specific configurations
-terraform:
-  # Terraform plan file analysis
-  plan-file: tfplan.json
-  
-cloudformation:
-  # CloudFormation template analysis
-  template-file: "*.yaml,*.yml,*.json"
