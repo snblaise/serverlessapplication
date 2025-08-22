@@ -84,9 +84,14 @@ resource "aws_codedeploy_deployment_group" "lambda_deployment_group" {
   }
 }
 
+# Random suffix for S3 bucket name to ensure uniqueness
+resource "random_id" "bucket_suffix" {
+  byte_length = 4
+}
+
 # S3 bucket for deployment artifacts
 resource "aws_s3_bucket" "lambda_artifacts" {
-  bucket        = "lambda-artifacts-${var.environment}-${data.aws_caller_identity.current.account_id}"
+  bucket        = "lambda-artifacts-${var.environment}-${random_id.bucket_suffix.hex}"
   force_destroy = var.environment != "production"
   
   tags = {
@@ -118,6 +123,10 @@ resource "aws_s3_bucket_lifecycle_configuration" "lambda_artifacts" {
   rule {
     id     = "cleanup_old_versions"
     status = "Enabled"
+
+    filter {
+      prefix = ""
+    }
 
     noncurrent_version_expiration {
       noncurrent_days = 30
