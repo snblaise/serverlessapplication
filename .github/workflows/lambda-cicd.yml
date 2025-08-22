@@ -176,6 +176,7 @@ jobs:
           role-to-assume: ${{ needs.setup.outputs.aws-role-arn }}
           role-session-name: GitHubActions-Build
           aws-region: ${{ needs.setup.outputs.aws-region }}
+          audience: sts.amazonaws.com
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -262,6 +263,7 @@ jobs:
           role-to-assume: ${{ needs.setup.outputs.aws-role-arn }}
           role-session-name: GitHubActions-Deploy
           aws-region: ${{ needs.setup.outputs.aws-region }}
+          audience: sts.amazonaws.com
 
       - name: Download build artifacts
         uses: actions/download-artifact@v4
@@ -334,6 +336,7 @@ jobs:
           role-to-assume: ${{ needs.setup.outputs.aws-role-arn }}
           role-session-name: GitHubActions-Rollback
           aws-region: ${{ needs.setup.outputs.aws-region }}
+          audience: sts.amazonaws.com
 
       - name: Rollback to previous version
         run: |
