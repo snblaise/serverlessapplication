@@ -106,6 +106,7 @@ jobs:
           role-to-assume: ${{ needs.setup.outputs.aws-role-arn }}
           role-session-name: GitHubActions-SecurityScan
           aws-region: ${{ needs.setup.outputs.aws-region }}
+          audience: sts.amazonaws.com
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
