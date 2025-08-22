@@ -1,0 +1,123 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'AWS Config Conformance Pack for Lambda Production Readiness'
+
+Parameters:
+  DeliveryChannelName:
+    Type: String
+    Default: 'default'
+    Description: 'Name of the AWS Config delivery channel'
+
+Resources:
+  LambdaProductionConformancePack:
+    Type: AWS::Config::ConformancePack
+    Properties:
+      ConformancePackName: 'lambda-production-readiness'
+      DeliveryS3Bucket: !Ref ConfigBucket
+      TemplateBody: |
+        Parameters:
+          LambdaExecutionRoleArnPattern:
+            Type: String
+            Default: 'arn:aws:iam::*:role/lambda-execution-*'
+        
+        Resources:
+          # Managed Config Rules
+          LambdaFunctionSettingsCheck:
+            Type: AWS::Config::ConfigRule
+            Properties:
+              ConfigRuleName: lambda-function-settings-check
+              Source:
+                Owner: AWS
+                SourceIdentifier: LAMBDA_FUNCTION_SETTINGS_CHECK
+              InputParameters: |
+                {
+                  "runtime": "nodejs18.x,nodejs20.x,python3.9,python3.10,python3.11",
+                  "timeout": "300"
+                }
+          
+          LambdaInsideVpcCheck:
+            Type: AWS::Config::ConfigRule
+            Properties:
+              ConfigRuleName: lambda-inside-vpc-check
+              Source:
+                Owner: AWS
+                SourceIdentifier: LAMBDA_INSIDE_VPC 
+         
+          LambdaConcurrencyCheck:
+            Type: AWS::Config::ConfigRule
+            Properties:
+              ConfigRuleName: lambda-concurrency-check
+              Source:
+                Owner: AWS
+                SourceIdentifier: LAMBDA_CONCURRENCY_CHECK
+              InputParameters: |
+                {
+                  "ConcurrencyLimitHigh": "1000",
+                  "ConcurrencyLimitLow": "100"
+                }
+          
+          # Custom Config Rules
+          LambdaCMKEncryptionCheck:
+            Type: AWS::Config::ConfigRule
+            Properties:
+              ConfigRuleName: lambda-cmk-encryption-check
+              Source:
+                Owner: AWS_CONFIG_RULE
+                SourceIdentifier: lambda-cmk-encryption-check
+                SourceDetail:
+                  - EventSource: aws.config
+                    MessageType: ConfigurationItemChangeNotification
+                  - EventSource: aws.config
+                    MessageType: OversizedConfigurationItemChangeNotification
+              Scope:
+                ComplianceResourceTypes:
+                  - AWS::Lambda::Function
+          
+          APIGatewayWAFAssociationCheck:
+            Type: AWS::Config::ConfigRule
+            Properties:
+              ConfigRuleName: api-gateway-waf-association-check
+              Source:
+                Owner: AWS_CONFIG_RULE
+                SourceIdentifier: api-gateway-waf-association-check
+                SourceDetail:
+                  - EventSource: aws.config
+                    MessageType: ConfigurationItemChangeNotification
+              Scope:
+                ComplianceResourceTypes:
+                  - AWS::ApiGateway::Stage
+          
+          LambdaCodeSigningCheck:
+            Type: AWS::Config::ConfigRule
+            Properties:
+              ConfigRuleName: lambda-code-signing-check
+              Source:
+                Owner: AWS_CONFIG_RULE
+                SourceIdentifier: lambda-code-signing-check
+                SourceDetail:
+                  - EventSource: aws.config
+                    MessageType: ConfigurationItemChangeNotification
+              Scope:
+                ComplianceResourceTypes:
+                  - AWS::Lambda::Function
+
+  ConfigBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'aws-config-bucket-${AWS::AccountId}-${AWS::Region}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+Outputs:
+  ConformancePackName:
+    Description: 'Name of the Lambda Production Readiness Conformance Pack'
+    Value: !Ref LambdaProductionConformancePack
+  ConfigBucketName:
+    Description: 'Name of the Config S3 bucket'
+    Value: !Ref ConfigBucket

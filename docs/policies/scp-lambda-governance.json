@@ -1,0 +1,67 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "RestrictLambdaRegions",
+      "Effect": "Deny",
+      "Action": [
+        "lambda:*"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringNotEquals": {
+          "aws:RequestedRegion": [
+            "us-east-1",
+            "us-west-2",
+            "eu-west-1"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "RequireEncryptionTags",
+      "Effect": "Deny",
+      "Action": [
+        "lambda:CreateFunction",
+        "lambda:UpdateFunctionConfiguration"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "Null": {
+          "aws:RequestTag/Encryption": "true"
+        }
+      }
+    },
+    {
+      "Sid": "RequireTracingTags",
+      "Effect": "Deny",
+      "Action": [
+        "lambda:CreateFunction",
+        "lambda:UpdateFunctionConfiguration"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "Null": {
+          "aws:RequestTag/TracingConfig": "true"
+        }
+      }
+    },
+    {
+      "Sid": "RequireEnvironmentTag",
+      "Effect": "Deny",
+      "Action": [
+        "lambda:CreateFunction"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "ForAllValues:StringNotEquals": {
+          "aws:RequestTag/Environment": [
+            "dev",
+            "staging",
+            "prod"
+          ]
+        }
+      }
+    }
+  ]
+}

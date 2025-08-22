@@ -1,0 +1,76 @@
+# GitHub Environment Configuration for Production
+# This file documents the required environment settings for the production environment
+
+environment:
+  name: production
+  protection_rules:
+    - type: required_reviewers
+      required_reviewers: 2  # Require 2 reviewers for production
+    - type: wait_timer
+      wait_timer: 5  # 5 minute wait time for production deployments
+  deployment_branch_policy:
+    protected_branches: true
+    custom_branch_policies: false
+    # Only main branch can deploy to production
+
+# Required secrets for production environment
+required_secrets:
+  - AWS_ACCOUNT_ID_PROD  # AWS Account ID for production environment
+  
+# Required variables for production environment  
+required_variables:
+  - LAMBDA_FUNCTION_NAME: "lambda-function-production"
+  - CODE_SIGNING_PROFILE: "lambda-production"
+  - DEPLOYMENT_BUCKET: "lambda-artifacts-production"
+  - CLOUDWATCH_LOG_GROUP: "/aws/lambda/lambda-function-production"
+
+# IAM Role Configuration
+iam_role:
+  name: "GitHubActions-Lambda-Production"
+  trust_policy: |
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Principal": {
+            "Federated": "arn:aws:iam::ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com"
+          },
+          "Action": "sts:AssumeRoleWithWebIdentity",
+          "Condition": {
+            "StringEquals": {
+              "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+            },
+            "StringLike": {
+              "token.actions.githubusercontent.com:sub": "repo:GITHUB_ORG/REPO_NAME:ref:refs/heads/main"
+            }
+          }
+        }
+      ]
+    }
+  
+  permissions:
+    - lambda:UpdateFunctionCode
+    - lambda:PublishVersion
+    - lambda:UpdateAlias
+    - lambda:GetFunction
+    - lambda:GetAlias
+    - codedeploy:CreateDeployment
+    - codedeploy:GetDeployment
+    - codedeploy:GetApplication
+    - codedeploy:GetDeploymentGroup
+    - signer:StartSigningJob
+    - signer:DescribeSigningJob
+    - s3:GetObject
+    - s3:PutObject
+    - cloudwatch:DescribeAlarms
+    - securityhub:BatchImportFindings
+    - sts:GetCallerIdentity
+
+# Additional production safeguards
+safeguards:
+  - Manual approval required for all deployments
+  - Canary deployment with 10% traffic for 5 minutes
+  - Automated rollback on CloudWatch alarm triggers
+  - Code signing verification mandatory
+  - Security scan results must pass before deployment

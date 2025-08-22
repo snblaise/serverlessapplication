@@ -1,0 +1,374 @@
+name: Lambda CI/CD Pipeline
+
+'on':
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to deploy to
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  NODE_VERSION: '18'
+  AWS_REGION: us-east-1
+
+permissions:
+  id-token: write # Required for OIDC
+  contents: read # Required to checkout code
+  security-events: write # Required for Security Hub integration
+  pull-requests: write # Required for PR comments
+
+jobs:
+  # Environment configuration and OIDC setup
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.env-config.outputs.environment }}
+      aws-role-arn: ${{ steps.env-config.outputs.aws-role-arn }}
+      aws-region: ${{ steps.env-config.outputs.aws-region }}
+    steps:
+      - name: Determine Environment
+        id: env-config
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            ENVIRONMENT="${{ github.event.inputs.environment }}"
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            ENVIRONMENT="production"
+          else
+            ENVIRONMENT="staging"
+          fi
+
+          echo "environment=${ENVIRONMENT}" >> $GITHUB_OUTPUT
+
+          # Set AWS role ARN based on environment
+          if [[ "${ENVIRONMENT}" == "production" ]]; then
+            echo "aws-role-arn=arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID_PROD }}:role/GitHubActions-Lambda-Production" >> $GITHUB_OUTPUT
+            echo "aws-region=us-east-1" >> $GITHUB_OUTPUT
+          else
+            echo "aws-role-arn=arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID_STAGING }}:role/GitHubActions-Lambda-Staging" >> $GITHUB_OUTPUT
+            echo "aws-region=us-east-1" >> $GITHUB_OUTPUT
+          fi
+
+  # Lint and test stage
+  lint-and-test:
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run linting
+        run: npm run lint
+
+      - name: Run tests
+        run: npm test -- --coverage
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: |
+            coverage/
+            test-results.xml
+
+  # Security scanning stage
+  security-scan:
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ needs.setup.outputs.aws-role-arn }}
+          role-session-name: GitHubActions-SecurityScan
+          aws-region: ${{ needs.setup.outputs.aws-region }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run SAST with CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+
+      - name: Run SCA with npm audit
+        run: |
+          npm audit --audit-level=high --json > npm-audit-results.json || true
+
+      - name: Run Checkov IaC scanning
+        uses: bridgecrewio/checkov-action@master
+        with:
+          config_file: docs/policies/ci-cd/.checkov.yaml
+          output_format: sarif
+          output_file_path: checkov-results.sarif
+
+      - name: Upload security scan results to Security Hub
+        run: |
+          # Convert and upload npm audit results to Security Hub
+          python3 scripts/upload-security-findings.py \
+            --source "npm-audit" \
+            --file "npm-audit-results.json" \
+            --environment "${{ needs.setup.outputs.environment }}"
+
+          # Upload Checkov results to Security Hub
+          python3 scripts/upload-security-findings.py \
+            --source "checkov" \
+            --file "checkov-results.sarif" \
+            --environment "${{ needs.setup.outputs.environment }}"
+
+      - name: Upload security artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-scan-results
+          path: |
+            npm-audit-results.json
+            checkov-results.sarif
+
+  # Build and package stage
+  build-and-package:
+    runs-on: ubuntu-latest
+    needs:
+      - setup
+      - lint-and-test
+      - security-scan
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ needs.setup.outputs.aws-role-arn }}
+          role-session-name: GitHubActions-Build
+          aws-region: ${{ needs.setup.outputs.aws-region }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install production dependencies
+        run: npm ci --only=production
+
+      - name: Build Lambda package
+        run: |
+          # Use optimized build script
+          chmod +x scripts/build-lambda-package.sh
+          ./scripts/build-lambda-package.sh
+
+      - name: Validate package before signing
+        run: |
+          # Use validation script for pre-signing checks
+          chmod +x scripts/validate-lambda-package.sh
+          ./scripts/validate-lambda-package.sh -f lambda-function.zip -m basic
+
+      - name: Sign Lambda package with AWS Signer
+        run: |
+          # Use signing script with proper error handling
+          chmod +x scripts/sign-lambda-package.sh
+
+          # Set S3 bucket based on environment
+          S3_BUCKET="lambda-artifacts-${{ needs.setup.outputs.environment }}"
+          SIGNING_PROFILE="lambda-${{ needs.setup.outputs.environment }}"
+
+          ./scripts/sign-lambda-package.sh \
+            --file lambda-function.zip \
+            --environment "${{ needs.setup.outputs.environment }}" \
+            --profile "$SIGNING_PROFILE" \
+            --bucket "$S3_BUCKET" \
+            --region "${{ needs.setup.outputs.aws-region }}"
+
+      - name: Validate signed package
+        run: |
+          # Validate the signed package
+          SIGNED_PACKAGE=$(ls lambda-function-signed.zip 2>/dev/null || echo "lambda-function.zip")
+
+          ./scripts/validate-lambda-package.sh -f "$SIGNED_PACKAGE" -m security
+
+          # Additional integrity checks for signed package
+          if [[ "$SIGNED_PACKAGE" == *"signed"* ]]; then
+            echo "Signed package validation completed"
+
+            # Verify signing report exists
+            if [[ ! -f "signing-report.json" ]]; then
+              echo "Warning: Signing report not found"
+            else
+              echo "Signing report generated successfully"
+              cat signing-report.json
+            fi
+          fi
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lambda-package-${{ needs.setup.outputs.environment }}
+          path: |
+            lambda-function.zip
+            package.json
+
+  # Deployment stage with approval gates
+  deploy:
+    runs-on: ubuntu-latest
+    needs:
+      - setup
+      - build-and-package
+    environment:
+      name: ${{ needs.setup.outputs.environment }}
+      url: https://console.aws.amazon.com/lambda/home?region=${{
+        needs.setup.outputs.aws-region }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ needs.setup.outputs.aws-role-arn }}
+          role-session-name: GitHubActions-Deploy
+          aws-region: ${{ needs.setup.outputs.aws-region }}
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: lambda-package-${{ needs.setup.outputs.environment }}
+
+      - name: Deploy with CodeDeploy canary
+        run: |
+          # Use canary deployment script
+          chmod +x scripts/deploy-lambda-canary.sh
+
+          # Determine package file (signed or unsigned)
+          PACKAGE_FILE="lambda-function.zip"
+          if [[ -f "lambda-function-signed.zip" ]]; then
+            PACKAGE_FILE="lambda-function-signed.zip"
+          fi
+
+          # Deploy using canary script
+          ./scripts/deploy-lambda-canary.sh \
+            --function "lambda-function-${{ needs.setup.outputs.environment }}" \
+            --environment "${{ needs.setup.outputs.environment }}" \
+            --package "$PACKAGE_FILE" \
+            --config "CodeDeployDefault.Lambda10PercentEvery5Minutes" \
+            --timeout 600 \
+            --region "${{ needs.setup.outputs.aws-region }}"
+
+      - name: Verify deployment success
+        run: |
+          # Check if deployment report exists and verify success
+          if [[ -f "deployment-report.json" ]]; then
+            echo "Deployment report generated:"
+            cat deployment-report.json
+
+            # Extract deployment status
+            DEPLOYMENT_STATUS=$(jq -r '.deploymentStatus' deployment-report.json)
+
+            if [[ "$DEPLOYMENT_STATUS" != "Succeeded" ]]; then
+              echo "Deployment did not succeed: $DEPLOYMENT_STATUS"
+              exit 1
+            fi
+
+            echo "Deployment verified as successful"
+          else
+            echo "Warning: Deployment report not found"
+          fi
+
+      - name: Upload deployment artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: deployment-artifacts-${{ needs.setup.outputs.environment }}
+          path: |
+            deployment-report.json
+            validation-report.json
+            signing-report.json
+            package-manifest.json
+
+  # Rollback job (manual trigger)
+  rollback:
+    runs-on: ubuntu-latest
+    needs:
+      - setup
+    if: failure() || github.event_name == 'workflow_dispatch'
+    environment:
+      name: ${{ needs.setup.outputs.environment }}-rollback
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ needs.setup.outputs.aws-role-arn }}
+          role-session-name: GitHubActions-Rollback
+          aws-region: ${{ needs.setup.outputs.aws-region }}
+
+      - name: Rollback to previous version
+        run: |
+          # Use rollback script for emergency rollback
+          chmod +x scripts/rollback-lambda-deployment.sh
+
+          ./scripts/rollback-lambda-deployment.sh \
+            --function "lambda-function-${{ needs.setup.outputs.environment }}" \
+            --environment "${{ needs.setup.outputs.environment }}" \
+            --mode "emergency" \
+            --region "${{ needs.setup.outputs.aws-region }}" \
+            --force
+
+          # Check rollback report
+          if [[ -f "rollback-report.json" ]]; then
+            echo "Rollback report:"
+            cat rollback-report.json
+
+            ROLLBACK_SUCCESS=$(jq -r '.rollbackSuccess' rollback-report.json)
+            TARGET_VERSION=$(jq -r '.targetVersion' rollback-report.json)
+
+            if [[ "$ROLLBACK_SUCCESS" == "true" ]]; then
+              echo "::warning::Lambda function successfully rolled back to version ${TARGET_VERSION}"
+            else
+              echo "::error::Lambda function rollback failed"
+              exit 1
+            fi
+          else
+            echo "::error::Rollback report not found"
+            exit 1
+          fi
+
+      - name: Upload rollback artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rollback-artifacts-${{ needs.setup.outputs.environment }}
+          path: |
+            rollback-report.json

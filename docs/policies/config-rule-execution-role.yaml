@@ -1,0 +1,58 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'IAM role for AWS Config custom rule Lambda functions'
+
+Resources:
+  ConfigRuleExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: config-rule-execution-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ConfigRuleExecutionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - config:PutEvaluations
+                  - config:GetComplianceDetailsByConfigRule
+                  - config:GetComplianceDetailsByResource
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - lambda:GetFunction
+                  - lambda:GetFunctionConfiguration
+                  - lambda:GetCodeSigningConfig
+                  - lambda:GetFunctionConcurrency
+                  - lambda:GetProvisionedConcurrencyConfig
+                  - lambda:ListTags
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - apigateway:GET
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - wafv2:GetWebACLForResource
+                  - wafv2:ListWebACLs
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - kms:DescribeKey
+                  - kms:GetKeyPolicy
+                Resource: '*'
+
+Outputs:
+  ConfigRuleExecutionRoleArn:
+    Description: 'ARN of the Config rule execution role'
+    Value: !GetAtt ConfigRuleExecutionRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-ConfigRuleExecutionRoleArn'

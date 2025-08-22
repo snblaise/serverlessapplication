@@ -1,0 +1,7 @@
+# CI/CD Workflows and Automation
+
+This directory will contain:
+- github-actions/
+- codedeploy-configs/
+- code-signing-configs/
+- deployment-templates/

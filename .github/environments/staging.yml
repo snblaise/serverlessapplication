@@ -1,0 +1,70 @@
+# GitHub Environment Configuration for Staging
+# This file documents the required environment settings for the staging environment
+
+environment:
+  name: staging
+  protection_rules:
+    - type: required_reviewers
+      required_reviewers: 1
+    - type: wait_timer
+      wait_timer: 0  # No wait time for staging
+  deployment_branch_policy:
+    protected_branches: false
+    custom_branch_policies: true
+    custom_branches:
+      - develop
+      - feature/*
+
+# Required secrets for staging environment
+required_secrets:
+  - AWS_ACCOUNT_ID_STAGING  # AWS Account ID for staging environment
+  
+# Required variables for staging environment  
+required_variables:
+  - LAMBDA_FUNCTION_NAME: "lambda-function-staging"
+  - CODE_SIGNING_PROFILE: "lambda-staging"
+  - DEPLOYMENT_BUCKET: "lambda-artifacts-staging"
+  - CLOUDWATCH_LOG_GROUP: "/aws/lambda/lambda-function-staging"
+
+# IAM Role Configuration
+iam_role:
+  name: "GitHubActions-Lambda-Staging"
+  trust_policy: |
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Principal": {
+            "Federated": "arn:aws:iam::ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com"
+          },
+          "Action": "sts:AssumeRoleWithWebIdentity",
+          "Condition": {
+            "StringEquals": {
+              "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+            },
+            "StringLike": {
+              "token.actions.githubusercontent.com:sub": "repo:GITHUB_ORG/REPO_NAME:*"
+            }
+          }
+        }
+      ]
+    }
+  
+  permissions:
+    - lambda:UpdateFunctionCode
+    - lambda:PublishVersion
+    - lambda:UpdateAlias
+    - lambda:GetFunction
+    - lambda:GetAlias
+    - codedeploy:CreateDeployment
+    - codedeploy:GetDeployment
+    - codedeploy:GetApplication
+    - codedeploy:GetDeploymentGroup
+    - signer:StartSigningJob
+    - signer:DescribeSigningJob
+    - s3:GetObject
+    - s3:PutObject
+    - cloudwatch:DescribeAlarms
+    - securityhub:BatchImportFindings
+    - sts:GetCallerIdentity

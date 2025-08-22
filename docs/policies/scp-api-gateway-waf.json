@@ -1,0 +1,33 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyPublicAPIGatewayWithoutWAF",
+      "Effect": "Deny",
+      "Action": [
+        "apigateway:CreateStage",
+        "apigateway:UpdateStage"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "Bool": {
+          "apigateway:Request/EndpointType": "EDGE"
+        },
+        "Null": {
+          "apigateway:Request/WebAclArn": "true"
+        }
+      }
+    },
+    {
+      "Sid": "DenyAPIGatewayDeploymentWithoutWAF",
+      "Effect": "Deny",
+      "Action": "apigateway:CreateDeployment",
+      "Resource": "*",
+      "Condition": {
+        "Bool": {
+          "apigateway:Request/EndpointType": "EDGE"
+        }
+      }
+    }
+  ]
+}

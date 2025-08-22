@@ -1,0 +1,6 @@
+# Production Readiness Requirements Documentation
+
+This directory will contain the core PRR documentation including:
+- production-readiness-requirements.md
+- control-matrix.md
+- compliance-mapping.md
