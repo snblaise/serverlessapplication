@@ -67,3 +67,9 @@ variable "notification_email" {
   type        = string
   default     = ""
 }
+
+variable "github_repository" {
+  description = "GitHub repository in the format 'owner/repo' for OIDC trust policy"
+  type        = string
+  default     = ""
+}
