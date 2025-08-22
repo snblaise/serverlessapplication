@@ -1,0 +1,7 @@
+{
+  "action": "create",
+  "data": {
+    "name": "sample-item",
+    "description": "This is a test event for local development"
+  }
+}

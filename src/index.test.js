@@ -1,9 +1,36 @@
 const { handler } = require('./index');
 
 // Mock AWS Lambda Powertools
-jest.mock('@aws-lambda-powertools/logger');
-jest.mock('@aws-lambda-powertools/metrics');
-jest.mock('@aws-lambda-powertools/tracer');
+jest.mock('@aws-lambda-powertools/logger', () => ({
+  Logger: jest.fn().mockImplementation(() => ({
+    info: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+    addContext: jest.fn(),
+  })),
+}));
+
+jest.mock('@aws-lambda-powertools/metrics', () => ({
+  Metrics: jest.fn().mockImplementation(() => ({
+    addMetric: jest.fn(),
+    publishStoredMetrics: jest.fn(),
+  })),
+  MetricUnits: {
+    Count: 'Count',
+  },
+}));
+
+jest.mock('@aws-lambda-powertools/tracer', () => ({
+  Tracer: jest.fn().mockImplementation(() => ({
+    getSegment: jest.fn().mockReturnValue({
+      addNewSubsegment: jest.fn().mockReturnValue({
+        addAnnotation: jest.fn(),
+        addMetadata: jest.fn(),
+        close: jest.fn(),
+      }),
+    }),
+  })),
+}));
 
 // Mock context object
 const createMockContext = (overrides = {}) => ({
@@ -21,7 +48,7 @@ describe('Lambda Handler', () => {
   });
 
   describe('Successful Operations', () => {
-    test('should handle create action successfully', async () => {
+    test('should handle create action successfully', async() => {
       const event = {
         action: 'create',
         data: {
@@ -39,7 +66,7 @@ describe('Lambda Handler', () => {
       expect(result.headers['X-Correlation-ID']).toBe(context.awsRequestId);
     });
 
-    test('should handle update action successfully', async () => {
+    test('should handle update action successfully', async() => {
       const event = {
         action: 'update',
         data: {
@@ -56,7 +83,7 @@ describe('Lambda Handler', () => {
       expect(JSON.parse(result.body).data.status).toBe('updated');
     });
 
-    test('should handle delete action successfully', async () => {
+    test('should handle delete action successfully', async() => {
       const event = {
         action: 'delete',
         data: {
@@ -75,7 +102,7 @@ describe('Lambda Handler', () => {
   });
 
   describe('Error Handling', () => {
-    test('should handle invalid event object', async () => {
+    test('should handle invalid event object', async() => {
       const event = null;
       const context = createMockContext();
 
@@ -86,7 +113,7 @@ describe('Lambda Handler', () => {
       expect(JSON.parse(result.body).error).toBe('Internal server error');
     });
 
-    test('should handle missing action field', async () => {
+    test('should handle missing action field', async() => {
       const event = {
         data: { name: 'test' },
       };
@@ -98,7 +125,7 @@ describe('Lambda Handler', () => {
       expect(JSON.parse(result.body).success).toBe(false);
     });
 
-    test('should handle unsupported action', async () => {
+    test('should handle unsupported action', async() => {
       const event = {
         action: 'unsupported',
         data: {},
@@ -111,7 +138,7 @@ describe('Lambda Handler', () => {
       expect(JSON.parse(result.body).success).toBe(false);
     });
 
-    test('should handle missing required fields for create', async () => {
+    test('should handle missing required fields for create', async() => {
       const event = {
         action: 'create',
         data: {},
@@ -124,7 +151,7 @@ describe('Lambda Handler', () => {
       expect(JSON.parse(result.body).success).toBe(false);
     });
 
-    test('should handle missing required fields for update', async () => {
+    test('should handle missing required fields for update', async() => {
       const event = {
         action: 'update',
         data: {},
@@ -137,7 +164,7 @@ describe('Lambda Handler', () => {
       expect(JSON.parse(result.body).success).toBe(false);
     });
 
-    test('should handle missing required fields for delete', async () => {
+    test('should handle missing required fields for delete', async() => {
       const event = {
         action: 'delete',
         data: {},
@@ -152,7 +179,7 @@ describe('Lambda Handler', () => {
   });
 
   describe('Response Format', () => {
-    test('should return proper response structure for success', async () => {
+    test('should return proper response structure for success', async() => {
       const event = {
         action: 'create',
         data: { name: 'test' },
@@ -173,7 +200,7 @@ describe('Lambda Handler', () => {
       expect(body).toHaveProperty('correlationId');
     });
 
-    test('should return proper response structure for error', async () => {
+    test('should return proper response structure for error', async() => {
       const event = null;
       const context = createMockContext();
 
@@ -193,7 +220,7 @@ describe('Lambda Handler', () => {
   });
 
   describe('Context Handling', () => {
-    test('should use correlation ID from context', async () => {
+    test('should use correlation ID from context', async() => {
       const event = {
         action: 'create',
         data: { name: 'test' },
@@ -208,7 +235,7 @@ describe('Lambda Handler', () => {
       expect(JSON.parse(result.body).correlationId).toBe('custom-correlation-id');
     });
 
-    test('should handle different function versions', async () => {
+    test('should handle different function versions', async() => {
       const event = {
         action: 'create',
         data: { name: 'test' },

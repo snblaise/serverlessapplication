@@ -21,7 +21,7 @@ const tracer = new Tracer({
  * Main Lambda handler function
  * Demonstrates production-ready patterns with observability
  */
-exports.handler = async (event, context) => {
+exports.handler = async(event, context) => {
   // Add correlation ID for tracing
   const correlationId = context.awsRequestId;
   logger.addContext({ correlationId });
@@ -135,17 +135,17 @@ async function processEvent(event, correlationId) {
     // Process based on action type
     let result;
     switch (action) {
-      case 'create':
-        result = await handleCreate(data, correlationId);
-        break;
-      case 'update':
-        result = await handleUpdate(data, correlationId);
-        break;
-      case 'delete':
-        result = await handleDelete(data, correlationId);
-        break;
-      default:
-        throw new Error(`Unsupported action: ${action}`);
+    case 'create':
+      result = await handleCreate(data, correlationId);
+      break;
+    case 'update':
+      result = await handleUpdate(data, correlationId);
+      break;
+    case 'delete':
+      result = await handleDelete(data, correlationId);
+      break;
+    default:
+      throw new Error(`Unsupported action: ${action}`);
     }
 
     processingSegment.addAnnotation('action', action);
