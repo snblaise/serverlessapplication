@@ -226,6 +226,172 @@ resource "aws_iam_role_policy" "github_actions_policy" {
           "iam:ListAttachedRolePolicies"
         ]
         Resource = "*"
+      },
+      # Infrastructure deployment permissions - IAM
+      {
+        Effect = "Allow"
+        Action = [
+          "iam:CreateRole",
+          "iam:DeleteRole",
+          "iam:UpdateRole",
+          "iam:AttachRolePolicy",
+          "iam:DetachRolePolicy",
+          "iam:PutRolePolicy",
+          "iam:DeleteRolePolicy",
+          "iam:CreateInstanceProfile",
+          "iam:DeleteInstanceProfile",
+          "iam:AddRoleToInstanceProfile",
+          "iam:RemoveRoleFromInstanceProfile",
+          "iam:TagRole",
+          "iam:UntagRole"
+        ]
+        Resource = [
+          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/*${var.environment}*",
+          "arn:aws:iam::${data.aws_caller_identity.current.account_id}:instance-profile/*${var.environment}*"
+        ]
+      },
+      # Infrastructure deployment permissions - KMS
+      {
+        Effect = "Allow"
+        Action = [
+          "kms:CreateKey",
+          "kms:DeleteKey",
+          "kms:DescribeKey",
+          "kms:GetKeyPolicy",
+          "kms:PutKeyPolicy",
+          "kms:CreateAlias",
+          "kms:DeleteAlias",
+          "kms:ListAliases",
+          "kms:TagResource",
+          "kms:UntagResource",
+          "kms:ScheduleKeyDeletion",
+          "kms:CancelKeyDeletion"
+        ]
+        Resource = "*"
+      },
+      # Infrastructure deployment permissions - S3
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:CreateBucket",
+          "s3:DeleteBucket",
+          "s3:PutBucketPolicy",
+          "s3:DeleteBucketPolicy",
+          "s3:PutBucketVersioning",
+          "s3:PutBucketEncryption",
+          "s3:PutBucketPublicAccessBlock",
+          "s3:PutBucketNotification",
+          "s3:PutBucketLogging",
+          "s3:PutBucketTagging",
+          "s3:GetBucketLocation",
+          "s3:GetBucketPolicy",
+          "s3:GetBucketVersioning",
+          "s3:GetBucketEncryption",
+          "s3:GetBucketPublicAccessBlock",
+          "s3:GetBucketNotification",
+          "s3:GetBucketLogging",
+          "s3:GetBucketTagging"
+        ]
+        Resource = [
+          "arn:aws:s3:::*${var.environment}*",
+          "arn:aws:s3:::lambda-artifacts-${var.environment}*"
+        ]
+      },
+      # Infrastructure deployment permissions - SNS
+      {
+        Effect = "Allow"
+        Action = [
+          "sns:CreateTopic",
+          "sns:DeleteTopic",
+          "sns:SetTopicAttributes",
+          "sns:GetTopicAttributes",
+          "sns:Subscribe",
+          "sns:Unsubscribe",
+          "sns:TagResource",
+          "sns:UntagResource",
+          "sns:ListTopics",
+          "sns:ListSubscriptionsByTopic"
+        ]
+        Resource = [
+          "arn:aws:sns:${var.aws_region}:${data.aws_caller_identity.current.account_id}:*${var.environment}*"
+        ]
+      },
+      # Infrastructure deployment permissions - SQS
+      {
+        Effect = "Allow"
+        Action = [
+          "sqs:CreateQueue",
+          "sqs:DeleteQueue",
+          "sqs:SetQueueAttributes",
+          "sqs:GetQueueAttributes",
+          "sqs:GetQueueUrl",
+          "sqs:TagQueue",
+          "sqs:UntagQueue",
+          "sqs:ListQueues"
+        ]
+        Resource = [
+          "arn:aws:sqs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:*${var.environment}*"
+        ]
+      },
+      # Infrastructure deployment permissions - CloudWatch
+      {
+        Effect = "Allow"
+        Action = [
+          "cloudwatch:PutMetricAlarm",
+          "cloudwatch:DeleteAlarms",
+          "cloudwatch:DescribeAlarms",
+          "cloudwatch:PutDashboard",
+          "cloudwatch:DeleteDashboards",
+          "cloudwatch:GetDashboard",
+          "cloudwatch:ListDashboards",
+          "cloudwatch:TagResource",
+          "cloudwatch:UntagResource"
+        ]
+        Resource = "*"
+      },
+      # Infrastructure deployment permissions - CodeDeploy
+      {
+        Effect = "Allow"
+        Action = [
+          "codedeploy:CreateApplication",
+          "codedeploy:DeleteApplication",
+          "codedeploy:GetApplication",
+          "codedeploy:CreateDeploymentGroup",
+          "codedeploy:DeleteDeploymentGroup",
+          "codedeploy:GetDeploymentGroup",
+          "codedeploy:UpdateDeploymentGroup",
+          "codedeploy:ListApplications",
+          "codedeploy:ListDeploymentGroups",
+          "codedeploy:TagResource",
+          "codedeploy:UntagResource"
+        ]
+        Resource = "*"
+      },
+      # Infrastructure deployment permissions - CodePipeline
+      {
+        Effect = "Allow"
+        Action = [
+          "codepipeline:CreatePipeline",
+          "codepipeline:DeletePipeline",
+          "codepipeline:GetPipeline",
+          "codepipeline:UpdatePipeline",
+          "codepipeline:ListPipelines",
+          "codepipeline:TagResource",
+          "codepipeline:UntagResource"
+        ]
+        Resource = "*"
+      },
+      # Infrastructure deployment permissions - CodeBuild
+      {
+        Effect = "Allow"
+        Action = [
+          "codebuild:CreateProject",
+          "codebuild:DeleteProject",
+          "codebuild:UpdateProject",
+          "codebuild:BatchGetProjects",
+          "codebuild:ListProjects"
+        ]
+        Resource = "*"
       }
     ]
   })
