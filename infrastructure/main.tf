@@ -68,6 +68,11 @@ resource "aws_codedeploy_deployment_group" "lambda_deployment_group" {
   
   deployment_config_name = var.environment == "production" ? "CodeDeployDefault.LambdaCanary10Percent10Minutes" : "CodeDeployDefault.LambdaCanary10Percent5Minutes"
   
+  deployment_style {
+    deployment_type   = "BLUE_GREEN"
+    deployment_option = "WITH_TRAFFIC_CONTROL"
+  }
+  
   auto_rollback_configuration {
     enabled = true
     events  = ["DEPLOYMENT_FAILURE", "DEPLOYMENT_STOP_ON_ALARM"]

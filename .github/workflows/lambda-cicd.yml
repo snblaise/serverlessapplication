@@ -275,13 +275,122 @@ jobs:
             lambda-function.zip
             package.json
 
-  # Deploy to Staging
-  deploy-staging:
+  # Deploy Infrastructure to Staging
+  deploy-infrastructure-staging:
     runs-on: ubuntu-latest
     needs:
       - setup
       - build-and-package
     if: always() && needs.build-and-package.result == 'success'
+    environment:
+      name: staging-infrastructure
+      url: https://console.aws.amazon.com/cloudformation/home?region=${{ needs.setup.outputs.aws-region }}
+    outputs:
+      infrastructure-status: ${{ steps.infrastructure-result.outputs.status }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_STAGING, secrets.AWS_ROLE_NAME_STAGING) }}
+          role-session-name: GitHubActions-Infrastructure-Staging
+          aws-region: ${{ needs.setup.outputs.aws-region }}
+          audience: sts.amazonaws.com
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.5.0"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: lambda-package-staging
+
+      - name: Prepare Lambda package for infrastructure
+        run: |
+          # Copy Lambda package to infrastructure directory
+          cp lambda-function.zip infrastructure/lambda-function.zip
+          
+          # Verify package exists
+          if [[ ! -f "infrastructure/lambda-function.zip" ]]; then
+            echo "❌ Lambda package not found in infrastructure directory"
+            exit 1
+          fi
+          
+          echo "✅ Lambda package prepared for infrastructure deployment"
+
+      - name: Deploy infrastructure with Terraform
+        id: deploy-infrastructure
+        working-directory: infrastructure
+        run: |
+          echo "🏗️ Deploying infrastructure for staging environment..."
+          
+          # Initialize Terraform
+          terraform init
+          
+          # Select or create staging workspace
+          terraform workspace select staging || terraform workspace new staging
+          
+          # Plan infrastructure deployment
+          terraform plan \
+            -var="environment=staging" \
+            -var="lambda_function_name=lambda-function-staging" \
+            -out=tfplan
+          
+          # Apply infrastructure changes
+          terraform apply -auto-approve tfplan
+          
+          echo "✅ Infrastructure deployment completed"
+
+      - name: Verify infrastructure deployment
+        id: infrastructure-result
+        working-directory: infrastructure
+        run: |
+          # Get infrastructure outputs
+          terraform output -json > infrastructure-outputs.json
+          
+          echo "Infrastructure outputs:"
+          cat infrastructure-outputs.json
+          
+          # Verify key resources exist
+          LAMBDA_FUNCTION_ARN=$(terraform output -raw lambda_function_arn)
+          PIPELINE_ARN=$(terraform output -raw pipeline_arn)
+          S3_BUCKET=$(terraform output -raw s3_artifacts_bucket)
+          
+          if [[ -z "$LAMBDA_FUNCTION_ARN" || -z "$PIPELINE_ARN" || -z "$S3_BUCKET" ]]; then
+            echo "❌ Infrastructure deployment verification failed - missing key resources"
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          echo "✅ Infrastructure deployment verified successfully"
+          echo "Lambda Function ARN: $LAMBDA_FUNCTION_ARN"
+          echo "Pipeline ARN: $PIPELINE_ARN"
+          echo "S3 Bucket: $S3_BUCKET"
+          
+          echo "status=success" >> $GITHUB_OUTPUT
+
+      - name: Upload infrastructure artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: infrastructure-artifacts-staging
+          path: |
+            infrastructure/infrastructure-outputs.json
+            infrastructure/terraform.tfstate
+            infrastructure/tfplan
+
+  # Deploy Lambda to Staging
+  deploy-staging:
+    runs-on: ubuntu-latest
+    needs:
+      - setup
+      - build-and-package
+      - deploy-infrastructure-staging
+    if: always() && needs.deploy-infrastructure-staging.outputs.infrastructure-status == 'success'
     environment:
       name: staging
       url: https://console.aws.amazon.com/lambda/home?region=${{ needs.setup.outputs.aws-region }}
@@ -303,6 +412,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: lambda-package-staging
+
+      - name: Download infrastructure artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: infrastructure-artifacts-staging
+          path: infrastructure-outputs
 
       - name: Deploy to Staging with CodeDeploy canary
         id: deploy-staging
@@ -439,14 +554,124 @@ jobs:
           echo "Note: Email notification requires additional setup with services like SendGrid, AWS SES, or GitHub notifications"
           echo "For now, approvers will be notified via GitHub's built-in environment protection notifications"
 
-  # Deploy to Production (after manual approval)
-  deploy-production:
+  # Deploy Infrastructure to Production
+  deploy-infrastructure-production:
     runs-on: ubuntu-latest
     needs:
       - setup
       - deploy-staging
       - request-production-approval
     if: needs.deploy-staging.outputs.deployment-status == 'success'
+    environment:
+      name: production-infrastructure
+      url: https://console.aws.amazon.com/cloudformation/home?region=${{ needs.setup.outputs.aws-region }}
+    outputs:
+      infrastructure-status: ${{ steps.infrastructure-result.outputs.status }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_PROD, secrets.AWS_ROLE_NAME_PROD) }}
+          role-session-name: GitHubActions-Infrastructure-Production
+          aws-region: ${{ needs.setup.outputs.aws-region }}
+          audience: sts.amazonaws.com
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.5.0"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: lambda-package-staging
+
+      - name: Prepare Lambda package for infrastructure
+        run: |
+          # Copy Lambda package to infrastructure directory
+          cp lambda-function.zip infrastructure/lambda-function.zip
+          
+          # Verify package exists
+          if [[ ! -f "infrastructure/lambda-function.zip" ]]; then
+            echo "❌ Lambda package not found in infrastructure directory"
+            exit 1
+          fi
+          
+          echo "✅ Lambda package prepared for infrastructure deployment"
+
+      - name: Deploy infrastructure with Terraform
+        id: deploy-infrastructure
+        working-directory: infrastructure
+        run: |
+          echo "🏗️ Deploying infrastructure for production environment..."
+          
+          # Initialize Terraform
+          terraform init
+          
+          # Select or create production workspace
+          terraform workspace select production || terraform workspace new production
+          
+          # Plan infrastructure deployment
+          terraform plan \
+            -var="environment=production" \
+            -var="lambda_function_name=lambda-function-production" \
+            -out=tfplan
+          
+          # Apply infrastructure changes
+          terraform apply -auto-approve tfplan
+          
+          echo "✅ Infrastructure deployment completed"
+
+      - name: Verify infrastructure deployment
+        id: infrastructure-result
+        working-directory: infrastructure
+        run: |
+          # Get infrastructure outputs
+          terraform output -json > infrastructure-outputs.json
+          
+          echo "Infrastructure outputs:"
+          cat infrastructure-outputs.json
+          
+          # Verify key resources exist
+          LAMBDA_FUNCTION_ARN=$(terraform output -raw lambda_function_arn)
+          PIPELINE_ARN=$(terraform output -raw pipeline_arn)
+          S3_BUCKET=$(terraform output -raw s3_artifacts_bucket)
+          
+          if [[ -z "$LAMBDA_FUNCTION_ARN" || -z "$PIPELINE_ARN" || -z "$S3_BUCKET" ]]; then
+            echo "❌ Infrastructure deployment verification failed - missing key resources"
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          echo "✅ Infrastructure deployment verified successfully"
+          echo "Lambda Function ARN: $LAMBDA_FUNCTION_ARN"
+          echo "Pipeline ARN: $PIPELINE_ARN"
+          echo "S3 Bucket: $S3_BUCKET"
+          
+          echo "status=success" >> $GITHUB_OUTPUT
+
+      - name: Upload infrastructure artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: infrastructure-artifacts-production
+          path: |
+            infrastructure/infrastructure-outputs.json
+            infrastructure/terraform.tfstate
+            infrastructure/tfplan
+
+  # Deploy Lambda to Production (after infrastructure)
+  deploy-production:
+    runs-on: ubuntu-latest
+    needs:
+      - setup
+      - deploy-staging
+      - request-production-approval
+      - deploy-infrastructure-production
+    if: needs.deploy-infrastructure-production.outputs.infrastructure-status == 'success'
     environment:
       name: production
       url: https://console.aws.amazon.com/lambda/home?region=${{ needs.setup.outputs.aws-region }}
@@ -468,6 +693,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: lambda-package-staging
+
+      - name: Download infrastructure artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: infrastructure-artifacts-production
+          path: infrastructure-outputs
 
       - name: Deploy to Production with CodeDeploy canary
         id: deploy-production
@@ -578,8 +809,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: 
       - setup
+      - deploy-infrastructure-staging
       - deploy-staging
-    if: always() && needs.deploy-staging.result == 'failure'
+    if: always() && (needs.deploy-infrastructure-staging.result == 'failure' || needs.deploy-staging.result == 'failure')
     environment:
       name: staging-rollback
     steps:
@@ -656,8 +888,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: 
       - setup
+      - deploy-infrastructure-production
       - deploy-production
-    if: always() && needs.deploy-production.result == 'failure'
+    if: always() && (needs.deploy-infrastructure-production.result == 'failure' || needs.deploy-production.result == 'failure')
     environment:
       name: production-rollback
     steps:
