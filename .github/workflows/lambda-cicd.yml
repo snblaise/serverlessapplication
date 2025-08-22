@@ -208,21 +208,44 @@ jobs:
           chmod +x scripts/validate-lambda-package.sh
           ./scripts/validate-lambda-package.sh -f lambda-function.zip -m basic
 
-      - name: Sign Lambda package with AWS Signer
+      - name: Sign Lambda package with AWS Signer (Optional)
         run: |
-          # Use signing script with proper error handling
-          chmod +x scripts/sign-lambda-package.sh
-
-          # Set S3 bucket based on environment
-          S3_BUCKET="lambda-artifacts-${{ needs.setup.outputs.environment }}"
+          # Check if signing profile exists before attempting to sign
           SIGNING_PROFILE="lambda-${{ needs.setup.outputs.environment }}"
-
-          ./scripts/sign-lambda-package.sh \
-            --file lambda-function.zip \
-            --environment "${{ needs.setup.outputs.environment }}" \
-            --profile "$SIGNING_PROFILE" \
-            --bucket "$S3_BUCKET" \
-            --region "${{ needs.setup.outputs.aws-region }}"
+          S3_BUCKET="lambda-artifacts-${{ needs.setup.outputs.environment }}"
+          
+          echo "Checking if signing profile '$SIGNING_PROFILE' exists..."
+          
+          # Check if signing profile exists
+          if aws signer get-signing-profile --profile-name "$SIGNING_PROFILE" --region "${{ needs.setup.outputs.aws-region }}" >/dev/null 2>&1; then
+            echo "Signing profile found. Proceeding with package signing..."
+            
+            chmod +x scripts/sign-lambda-package.sh
+            ./scripts/sign-lambda-package.sh \
+              --file lambda-function.zip \
+              --environment "${{ needs.setup.outputs.environment }}" \
+              --profile "$SIGNING_PROFILE" \
+              --bucket "$S3_BUCKET" \
+              --region "${{ needs.setup.outputs.aws-region }}"
+          else
+            echo "Signing profile '$SIGNING_PROFILE' not found. Skipping code signing."
+            echo "To enable code signing, create a signing profile in AWS Signer."
+            
+            # Create empty signing report for consistency
+            cat > signing-report.json << EOF
+          {
+            "signingJobId": null,
+            "signingProfile": "$SIGNING_PROFILE",
+            "environment": "${{ needs.setup.outputs.environment }}",
+            "status": "skipped",
+            "reason": "Signing profile not found",
+            "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "originalPackage": {
+              "file": "lambda-function.zip"
+            }
+          }
+          EOF
+          fi
 
       - name: Validate signed package
         run: |
