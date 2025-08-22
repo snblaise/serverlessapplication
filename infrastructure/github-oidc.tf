@@ -1,36 +1,17 @@
 # GitHub OIDC Provider and IAM Roles for GitHub Actions
 # This enables GitHub Actions to assume AWS roles without storing credentials
 
-# Data source for GitHub OIDC provider (create if it doesn't exist)
+# Get existing GitHub OIDC provider
 data "aws_iam_openid_connect_provider" "github" {
   url = "https://token.actions.githubusercontent.com"
 }
 
-# Create GitHub OIDC provider if it doesn't exist
-resource "aws_iam_openid_connect_provider" "github" {
-  count = length(data.aws_iam_openid_connect_provider.github.arn) == 0 ? 1 : 0
-
-  url = "https://token.actions.githubusercontent.com"
-
-  client_id_list = [
-    "sts.amazonaws.com",
-  ]
-
-  thumbprint_list = [
-    "6938fd4d98bab03faadb97b34396831e3780aea1",
-    "1c58a3a8518e8759bf075b76b750d4f2df264fcd"
-  ]
-
-  tags = {
-    Environment = var.environment
-    Project     = "lambda-production-ready"
-    ManagedBy   = "terraform"
-  }
-}
-
-# Get the OIDC provider ARN (either existing or newly created)
+# Local values for configuration
 locals {
-  github_oidc_provider_arn = length(data.aws_iam_openid_connect_provider.github.arn) > 0 ? data.aws_iam_openid_connect_provider.github.arn : aws_iam_openid_connect_provider.github[0].arn
+  github_oidc_provider_arn = data.aws_iam_openid_connect_provider.github.arn
+  
+  # Default repository if not provided
+  github_repository = var.github_repository != "" ? var.github_repository : "*"
 }
 
 # IAM role for GitHub Actions (staging)
@@ -53,9 +34,9 @@ resource "aws_iam_role" "github_actions_staging" {
           }
           StringLike = {
             "token.actions.githubusercontent.com:sub" = [
-              "repo:${var.github_repository}:ref:refs/heads/main",
-              "repo:${var.github_repository}:ref:refs/heads/develop",
-              "repo:${var.github_repository}:pull_request"
+              "repo:${local.github_repository}:ref:refs/heads/main",
+              "repo:${local.github_repository}:ref:refs/heads/develop",
+              "repo:${local.github_repository}:pull_request"
             ]
           }
         }
@@ -90,7 +71,7 @@ resource "aws_iam_role" "github_actions_production" {
           }
           StringLike = {
             "token.actions.githubusercontent.com:sub" = [
-              "repo:${var.github_repository}:ref:refs/heads/main"
+              "repo:${local.github_repository}:ref:refs/heads/main"
             ]
           }
         }
