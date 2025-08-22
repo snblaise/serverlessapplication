@@ -46,7 +46,11 @@ echo ""
 echo "👤 IAM Role Check:"
 
 # Check if IAM role exists
-ROLE_NAME="GitHubActions-Lambda-${ENVIRONMENT^}"
+if [[ "$ENVIRONMENT" == "staging" ]]; then
+    ROLE_NAME="GitHubActions-Lambda-Staging"
+else
+    ROLE_NAME="GitHubActions-Lambda-Production"
+fi
 if aws iam get-role --role-name "$ROLE_NAME" >/dev/null 2>&1; then
     echo "  ✅ IAM role exists: $ROLE_NAME"
     
