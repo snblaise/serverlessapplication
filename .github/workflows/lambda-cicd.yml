@@ -122,6 +122,10 @@ jobs:
         run: |
           npm audit --audit-level=high --json > npm-audit-results.json || true
 
+      - name: Install Checkov
+        run: |
+          pip3 install checkov
+
       - name: Run Checkov IaC scanning
         run: |
           # Run Checkov and create SARIF output
@@ -328,18 +332,30 @@ jobs:
   # Rollback job (manual trigger)
   rollback:
     runs-on: ubuntu-latest
-    needs:
-      - setup
     if: failure() || github.event_name == 'workflow_dispatch'
     environment:
-      name: ${{ needs.setup.outputs.environment }}-rollback
+      name: ${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}-rollback
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Determine environment
+        id: env
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "environment=production" >> $GITHUB_OUTPUT
+            echo "aws-region=us-east-1" >> $GITHUB_OUTPUT
+          else
+            echo "environment=staging" >> $GITHUB_OUTPUT
+            echo "aws-region=us-east-1" >> $GITHUB_OUTPUT
+          fi
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ needs.setup.outputs.environment == 'production' && format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_PROD, secrets.AWS_ROLE_NAME_PROD) || format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_STAGING, secrets.AWS_ROLE_NAME_STAGING) }}
+          role-to-assume: ${{ steps.env.outputs.environment == 'production' && format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_PROD, secrets.AWS_ROLE_NAME_PROD) || format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_STAGING, secrets.AWS_ROLE_NAME_STAGING) }}
           role-session-name: GitHubActions-Rollback
-          aws-region: ${{ needs.setup.outputs.aws-region }}
+          aws-region: ${{ steps.env.outputs.aws-region }}
           audience: sts.amazonaws.com
 
       - name: Rollback to previous version
@@ -348,10 +364,10 @@ jobs:
           chmod +x scripts/rollback-lambda-deployment.sh
 
           ./scripts/rollback-lambda-deployment.sh \
-            --function "lambda-function-${{ needs.setup.outputs.environment }}" \
-            --environment "${{ needs.setup.outputs.environment }}" \
+            --function "lambda-function-${{ steps.env.outputs.environment }}" \
+            --environment "${{ steps.env.outputs.environment }}" \
             --mode "emergency" \
-            --region "${{ needs.setup.outputs.aws-region }}" \
+            --region "${{ steps.env.outputs.aws-region }}" \
             --force
 
           # Check rollback report
