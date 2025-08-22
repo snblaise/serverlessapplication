@@ -270,20 +270,23 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: lambda-package-${{ needs.setup.outputs.environment }}
+          name: lambda-package-staging
           path: |
             lambda-function.zip
             package.json
 
-  # Deployment stage with approval gates
-  deploy:
+  # Deploy to Staging
+  deploy-staging:
     runs-on: ubuntu-latest
     needs:
       - setup
       - build-and-package
+    if: needs.setup.outputs.environment == 'staging' || github.ref == 'refs/heads/develop' || github.event_name == 'pull_request'
     environment:
-      name: ${{ needs.setup.outputs.environment }}
+      name: staging
       url: https://console.aws.amazon.com/lambda/home?region=${{ needs.setup.outputs.aws-region }}
+    outputs:
+      deployment-status: ${{ steps.deployment-result.outputs.status }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -291,18 +294,21 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ needs.setup.outputs.environment == 'production' && format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_PROD, secrets.AWS_ROLE_NAME_PROD) || format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_STAGING, secrets.AWS_ROLE_NAME_STAGING) }}
-          role-session-name: GitHubActions-Deploy
+          role-to-assume: ${{ format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_STAGING, secrets.AWS_ROLE_NAME_STAGING) }}
+          role-session-name: GitHubActions-Deploy-Staging
           aws-region: ${{ needs.setup.outputs.aws-region }}
           audience: sts.amazonaws.com
 
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
-          name: lambda-package-${{ needs.setup.outputs.environment }}
+          name: lambda-package-staging
 
-      - name: Deploy with CodeDeploy canary
+      - name: Deploy to Staging with CodeDeploy canary
+        id: deploy-staging
         run: |
+          echo "🚀 Deploying to Staging environment..."
+          
           # Use canary deployment script
           chmod +x scripts/deploy-lambda-canary.sh
 
@@ -314,14 +320,15 @@ jobs:
 
           # Deploy using canary script
           ./scripts/deploy-lambda-canary.sh \
-            --function "lambda-function-${{ needs.setup.outputs.environment }}" \
-            --environment "${{ needs.setup.outputs.environment }}" \
+            --function "lambda-function-staging" \
+            --environment "staging" \
             --package "$PACKAGE_FILE" \
             --config "CodeDeployDefault.Lambda10PercentEvery5Minutes" \
             --timeout 600 \
             --region "${{ needs.setup.outputs.aws-region }}"
 
-      - name: Verify deployment success
+      - name: Verify staging deployment success
+        id: deployment-result
         run: |
           # Check if deployment report exists and verify success
           if [[ -f "deployment-report.json" ]]; then
@@ -333,30 +340,34 @@ jobs:
 
             if [[ "$DEPLOYMENT_STATUS" != "Succeeded" ]]; then
               echo "Deployment did not succeed: $DEPLOYMENT_STATUS"
+              echo "status=failed" >> $GITHUB_OUTPUT
               exit 1
             fi
 
             echo "Deployment verified as successful"
+            echo "status=success" >> $GITHUB_OUTPUT
           else
             echo "Warning: Deployment report not found"
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
           fi
 
       - name: Post-deployment health check
         run: |
-          echo "Running post-deployment health checks..."
+          echo "Running post-deployment health checks for staging..."
           
           # Wait for deployment to stabilize
           sleep 30
           
           # Test Lambda function invocation
-          FUNCTION_NAME="lambda-function-${{ needs.setup.outputs.environment }}"
+          FUNCTION_NAME="lambda-function-staging"
           
           echo "Testing Lambda function: $FUNCTION_NAME"
           
           # Invoke function with test payload
           TEST_RESULT=$(aws lambda invoke \
             --function-name "$FUNCTION_NAME" \
-            --payload '{"test": true, "source": "cicd-health-check"}' \
+            --payload '{"test": true, "source": "cicd-health-check", "environment": "staging"}' \
             --region "${{ needs.setup.outputs.aws-region }}" \
             response.json 2>&1 || echo "INVOKE_FAILED")
           
@@ -383,28 +394,64 @@ jobs:
             exit 1
           fi
           
-          echo "✅ Post-deployment health check passed"
+          echo "✅ Staging deployment health check passed"
 
-      - name: Upload deployment artifacts
+      - name: Upload staging deployment artifacts
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: deployment-artifacts-${{ needs.setup.outputs.environment }}
+          name: deployment-artifacts-staging
           path: |
             deployment-report.json
             validation-report.json
             signing-report.json
             package-manifest.json
+            response.json
 
-  # Automatic rollback job (triggers on deployment failure or manual trigger)
-  rollback:
+  # Manual Approval for Production Deployment
+  request-production-approval:
     runs-on: ubuntu-latest
-    needs: 
+    needs:
       - setup
-      - deploy
-    if: always() && (needs.deploy.result == 'failure' || github.event_name == 'workflow_dispatch')
+      - deploy-staging
+    if: needs.deploy-staging.outputs.deployment-status == 'success' && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
     environment:
-      name: ${{ needs.setup.outputs.environment }}-rollback
+      name: production-approval
+    steps:
+      - name: Request Production Deployment Approval
+        run: |
+          echo "🔔 Production deployment approval requested"
+          echo "Staging deployment completed successfully"
+          echo "Waiting for manual approval to proceed with production deployment..."
+          echo ""
+          echo "📋 Deployment Summary:"
+          echo "  - Environment: Production"
+          echo "  - Commit: ${{ github.sha }}"
+          echo "  - Branch: ${{ github.ref }}"
+          echo "  - Triggered by: ${{ github.actor }}"
+          echo "  - Staging Status: ✅ Success"
+          echo ""
+          echo "⚠️  Please review the staging deployment before approving production deployment."
+
+      - name: Send approval notification email
+        run: |
+          echo "📧 Sending approval notification email..."
+          echo "Note: Email notification requires additional setup with services like SendGrid, AWS SES, or GitHub notifications"
+          echo "For now, approvers will be notified via GitHub's built-in environment protection notifications"
+
+  # Deploy to Production (after manual approval)
+  deploy-production:
+    runs-on: ubuntu-latest
+    needs:
+      - setup
+      - deploy-staging
+      - request-production-approval
+    if: needs.deploy-staging.outputs.deployment-status == 'success'
+    environment:
+      name: production
+      url: https://console.aws.amazon.com/lambda/home?region=${{ needs.setup.outputs.aws-region }}
+    outputs:
+      deployment-status: ${{ steps.deployment-result.outputs.status }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -412,41 +459,164 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ needs.setup.outputs.environment == 'production' && format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_PROD, secrets.AWS_ROLE_NAME_PROD) || format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_STAGING, secrets.AWS_ROLE_NAME_STAGING) }}
-          role-session-name: GitHubActions-Rollback
+          role-to-assume: ${{ format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_PROD, secrets.AWS_ROLE_NAME_PROD) }}
+          role-session-name: GitHubActions-Deploy-Production
           aws-region: ${{ needs.setup.outputs.aws-region }}
           audience: sts.amazonaws.com
 
-      - name: Rollback to previous version
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: lambda-package-staging
+
+      - name: Deploy to Production with CodeDeploy canary
+        id: deploy-production
         run: |
-          echo "🔄 Starting automatic rollback process..."
-          echo "Deployment failure detected - initiating emergency rollback"
+          echo "🚀 Deploying to Production environment..."
           
-          # Log rollback trigger reason
-          if [[ "${{ needs.deploy.result }}" == "failure" ]]; then
-            echo "Rollback triggered by: Deployment job failure"
-          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "Rollback triggered by: Manual workflow dispatch"
+          # Use canary deployment script
+          chmod +x scripts/deploy-lambda-canary.sh
+
+          # Determine package file (signed or unsigned)
+          PACKAGE_FILE="lambda-function.zip"
+          if [[ -f "lambda-function-signed.zip" ]]; then
+            PACKAGE_FILE="lambda-function-signed.zip"
           fi
+
+          # Deploy using canary script
+          ./scripts/deploy-lambda-canary.sh \
+            --function "lambda-function-production" \
+            --environment "production" \
+            --package "$PACKAGE_FILE" \
+            --config "CodeDeployDefault.Lambda10PercentEvery5Minutes" \
+            --timeout 600 \
+            --region "${{ needs.setup.outputs.aws-region }}"
+
+      - name: Verify production deployment success
+        id: deployment-result
+        run: |
+          # Check if deployment report exists and verify success
+          if [[ -f "deployment-report.json" ]]; then
+            echo "Deployment report generated:"
+            cat deployment-report.json
+
+            # Extract deployment status
+            DEPLOYMENT_STATUS=$(jq -r '.deploymentStatus' deployment-report.json)
+
+            if [[ "$DEPLOYMENT_STATUS" != "Succeeded" ]]; then
+              echo "Deployment did not succeed: $DEPLOYMENT_STATUS"
+              echo "status=failed" >> $GITHUB_OUTPUT
+              exit 1
+            fi
+
+            echo "Deployment verified as successful"
+            echo "status=success" >> $GITHUB_OUTPUT
+          else
+            echo "Warning: Deployment report not found"
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Post-deployment health check
+        run: |
+          echo "Running post-deployment health checks for production..."
+          
+          # Wait for deployment to stabilize
+          sleep 30
+          
+          # Test Lambda function invocation
+          FUNCTION_NAME="lambda-function-production"
+          
+          echo "Testing Lambda function: $FUNCTION_NAME"
+          
+          # Invoke function with test payload
+          TEST_RESULT=$(aws lambda invoke \
+            --function-name "$FUNCTION_NAME" \
+            --payload '{"test": true, "source": "cicd-health-check", "environment": "production"}' \
+            --region "${{ needs.setup.outputs.aws-region }}" \
+            response.json 2>&1 || echo "INVOKE_FAILED")
+          
+          if [[ "$TEST_RESULT" == *"INVOKE_FAILED"* ]]; then
+            echo "❌ Lambda function invocation failed"
+            echo "Error: $TEST_RESULT"
+            exit 1
+          fi
+          
+          # Check response
+          if [[ -f "response.json" ]]; then
+            echo "✅ Lambda function invocation successful"
+            echo "Response:"
+            cat response.json
+            
+            # Check for errors in response
+            if grep -q "errorMessage\|errorType" response.json; then
+              echo "❌ Lambda function returned an error"
+              cat response.json
+              exit 1
+            fi
+          else
+            echo "❌ No response file generated"
+            exit 1
+          fi
+          
+          echo "✅ Production deployment health check passed"
+
+      - name: Upload production deployment artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: deployment-artifacts-production
+          path: |
+            deployment-report.json
+            validation-report.json
+            signing-report.json
+            package-manifest.json
+            response.json
+
+  # Rollback Staging (triggers on staging deployment failure)
+  rollback-staging:
+    runs-on: ubuntu-latest
+    needs: 
+      - setup
+      - deploy-staging
+    if: always() && needs.deploy-staging.result == 'failure'
+    environment:
+      name: staging-rollback
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_STAGING, secrets.AWS_ROLE_NAME_STAGING) }}
+          role-session-name: GitHubActions-Rollback-Staging
+          aws-region: ${{ needs.setup.outputs.aws-region }}
+          audience: sts.amazonaws.com
+
+      - name: Rollback staging to previous version
+        run: |
+          echo "🔄 Starting automatic rollback process for STAGING..."
+          echo "Staging deployment failure detected - initiating emergency rollback"
           
           # Use rollback script for emergency rollback
           chmod +x scripts/rollback-lambda-deployment.sh
 
           ./scripts/rollback-lambda-deployment.sh \
-            --function "lambda-function-${{ needs.setup.outputs.environment }}" \
-            --environment "${{ needs.setup.outputs.environment }}" \
+            --function "lambda-function-staging" \
+            --environment "staging" \
             --mode "emergency" \
             --region "${{ needs.setup.outputs.aws-region }}" \
             --force
           
-          echo "🔄 Rollback process completed"
+          echo "🔄 Staging rollback process completed"
 
-      - name: Verify rollback success
+      - name: Verify staging rollback success
         run: |
-          echo "🔍 Verifying rollback was successful..."
+          echo "🔍 Verifying staging rollback was successful..."
           
           # Test the rolled-back function
-          FUNCTION_NAME="lambda-function-${{ needs.setup.outputs.environment }}"
+          FUNCTION_NAME="lambda-function-staging"
           
           # Wait for rollback to stabilize
           sleep 30
@@ -454,58 +624,214 @@ jobs:
           # Test function invocation after rollback
           TEST_RESULT=$(aws lambda invoke \
             --function-name "$FUNCTION_NAME" \
-            --payload '{"test": true, "source": "rollback-verification"}' \
+            --payload '{"test": true, "source": "rollback-verification", "environment": "staging"}' \
             --region "${{ needs.setup.outputs.aws-region }}" \
             rollback-response.json 2>&1 || echo "ROLLBACK_TEST_FAILED")
           
           if [[ "$TEST_RESULT" == *"ROLLBACK_TEST_FAILED"* ]]; then
-            echo "❌ Rollback verification failed - function still not working"
+            echo "❌ Staging rollback verification failed - function still not working"
             echo "Error: $TEST_RESULT"
             exit 1
           fi
           
           if [[ -f "rollback-response.json" ]]; then
-            echo "✅ Rollback verification successful"
+            echo "✅ Staging rollback verification successful"
             echo "Function response after rollback:"
             cat rollback-response.json
           fi
           
-          echo "✅ Rollback completed and verified successfully"
+          echo "✅ Staging rollback completed and verified successfully"
 
-      - name: Notify rollback completion
+      - name: Upload staging rollback artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rollback-artifacts-staging
+          path: |
+            rollback-response.json
+            rollback-report.json
+
+  # Rollback Production (triggers on production deployment failure)
+  rollback-production:
+    runs-on: ubuntu-latest
+    needs: 
+      - setup
+      - deploy-production
+    if: always() && needs.deploy-production.result == 'failure'
+    environment:
+      name: production-rollback
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_PROD, secrets.AWS_ROLE_NAME_PROD) }}
+          role-session-name: GitHubActions-Rollback-Production
+          aws-region: ${{ needs.setup.outputs.aws-region }}
+          audience: sts.amazonaws.com
+
+      - name: Rollback production to previous version
+        run: |
+          echo "🔄 Starting automatic rollback process for PRODUCTION..."
+          echo "Production deployment failure detected - initiating emergency rollback"
+          
+          # Use rollback script for emergency rollback
+          chmod +x scripts/rollback-lambda-deployment.sh
+
+          ./scripts/rollback-lambda-deployment.sh \
+            --function "lambda-function-production" \
+            --environment "production" \
+            --mode "emergency" \
+            --region "${{ needs.setup.outputs.aws-region }}" \
+            --force
+          
+          echo "🔄 Production rollback process completed"
+
+      - name: Verify production rollback success
+        run: |
+          echo "🔍 Verifying production rollback was successful..."
+          
+          # Test the rolled-back function
+          FUNCTION_NAME="lambda-function-production"
+          
+          # Wait for rollback to stabilize
+          sleep 30
+          
+          # Test function invocation after rollback
+          TEST_RESULT=$(aws lambda invoke \
+            --function-name "$FUNCTION_NAME" \
+            --payload '{"test": true, "source": "rollback-verification", "environment": "production"}' \
+            --region "${{ needs.setup.outputs.aws-region }}" \
+            rollback-response.json 2>&1 || echo "ROLLBACK_TEST_FAILED")
+          
+          if [[ "$TEST_RESULT" == *"ROLLBACK_TEST_FAILED"* ]]; then
+            echo "❌ Production rollback verification failed - function still not working"
+            echo "Error: $TEST_RESULT"
+            exit 1
+          fi
+          
+          if [[ -f "rollback-response.json" ]]; then
+            echo "✅ Production rollback verification successful"
+            echo "Function response after rollback:"
+            cat rollback-response.json
+          fi
+          
+          echo "✅ Production rollback completed and verified successfully"
+
+      - name: Notify production rollback completion
         if: always()
         run: |
-          echo "📢 Rollback notification"
-          echo "Environment: ${{ needs.setup.outputs.environment }}"
-          echo "Function: lambda-function-${{ needs.setup.outputs.environment }}"
+          echo "📢 CRITICAL: Production rollback notification"
+          echo "Environment: production"
+          echo "Function: lambda-function-production"
           echo "Rollback Status: ${{ job.status }}"
-          echo "Triggered by: ${{ github.event_name }}"
+          echo "Triggered by: Production deployment failure"
           echo "Commit: ${{ github.sha }}"
           echo "Branch: ${{ github.ref }}"
           
           # Create rollback report
           cat > rollback-report.json << EOF
           {
-            "rollbackId": "${{ github.run_id }}-rollback",
-            "environment": "${{ needs.setup.outputs.environment }}",
-            "functionName": "lambda-function-${{ needs.setup.outputs.environment }}",
+            "rollbackId": "${{ github.run_id }}-production-rollback",
+            "environment": "production",
+            "functionName": "lambda-function-production",
             "rollbackStatus": "${{ job.status }}",
-            "triggeredBy": "${{ github.event_name }}",
+            "triggeredBy": "production-deployment-failure",
             "originalCommit": "${{ github.sha }}",
             "branch": "${{ github.ref }}",
             "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-            "deploymentFailureReason": "${{ needs.deploy.result }}"
+            "deploymentFailureReason": "${{ needs.deploy-production.result }}"
           }
           EOF
           
-          echo "Rollback report generated:"
+          echo "Production rollback report generated:"
           cat rollback-report.json
 
-      - name: Upload rollback artifacts
+      - name: Upload production rollback artifacts
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: rollback-artifacts-${{ needs.setup.outputs.environment }}
+          name: rollback-artifacts-production
+          path: |
+            rollback-response.json
+            rollback-report.json
+
+  # Manual Rollback (can be triggered manually for any environment)
+  manual-rollback:
+    runs-on: ubuntu-latest
+    needs: 
+      - setup
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment != ''
+    environment:
+      name: ${{ github.event.inputs.environment }}-manual-rollback
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ github.event.inputs.environment == 'production' && format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_PROD, secrets.AWS_ROLE_NAME_PROD) || format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_STAGING, secrets.AWS_ROLE_NAME_STAGING) }}
+          role-session-name: GitHubActions-Manual-Rollback
+          aws-region: ${{ needs.setup.outputs.aws-region }}
+          audience: sts.amazonaws.com
+
+      - name: Manual rollback to previous version
+        run: |
+          echo "🔄 Starting MANUAL rollback process..."
+          echo "Environment: ${{ github.event.inputs.environment }}"
+          echo "Triggered by: ${{ github.actor }}"
+          
+          # Use rollback script for manual rollback
+          chmod +x scripts/rollback-lambda-deployment.sh
+
+          ./scripts/rollback-lambda-deployment.sh \
+            --function "lambda-function-${{ github.event.inputs.environment }}" \
+            --environment "${{ github.event.inputs.environment }}" \
+            --mode "manual" \
+            --region "${{ needs.setup.outputs.aws-region }}" \
+            --force
+          
+          echo "🔄 Manual rollback process completed"
+
+      - name: Verify manual rollback success
+        run: |
+          echo "🔍 Verifying manual rollback was successful..."
+          
+          # Test the rolled-back function
+          FUNCTION_NAME="lambda-function-${{ github.event.inputs.environment }}"
+          
+          # Wait for rollback to stabilize
+          sleep 30
+          
+          # Test function invocation after rollback
+          TEST_RESULT=$(aws lambda invoke \
+            --function-name "$FUNCTION_NAME" \
+            --payload '{"test": true, "source": "manual-rollback-verification", "environment": "${{ github.event.inputs.environment }}"}' \
+            --region "${{ needs.setup.outputs.aws-region }}" \
+            rollback-response.json 2>&1 || echo "ROLLBACK_TEST_FAILED")
+          
+          if [[ "$TEST_RESULT" == *"ROLLBACK_TEST_FAILED"* ]]; then
+            echo "❌ Manual rollback verification failed - function still not working"
+            echo "Error: $TEST_RESULT"
+            exit 1
+          fi
+          
+          if [[ -f "rollback-response.json" ]]; then
+            echo "✅ Manual rollback verification successful"
+            echo "Function response after rollback:"
+            cat rollback-response.json
+          fi
+          
+          echo "✅ Manual rollback completed and verified successfully"
+
+      - name: Upload manual rollback artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rollback-artifacts-${{ github.event.inputs.environment }}-manual
           path: |
             rollback-response.json
             rollback-report.json
