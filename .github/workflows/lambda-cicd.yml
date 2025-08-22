@@ -400,31 +400,21 @@ jobs:
   rollback:
     runs-on: ubuntu-latest
     needs: 
+      - setup
       - deploy
     if: always() && (needs.deploy.result == 'failure' || github.event_name == 'workflow_dispatch')
     environment:
-      name: ${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}-rollback
+      name: ${{ needs.setup.outputs.environment }}-rollback
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Determine environment
-        id: env
-        run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            echo "environment=production" >> $GITHUB_OUTPUT
-            echo "aws-region=us-east-1" >> $GITHUB_OUTPUT
-          else
-            echo "environment=staging" >> $GITHUB_OUTPUT
-            echo "aws-region=us-east-1" >> $GITHUB_OUTPUT
-          fi
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ steps.env.outputs.environment == 'production' && format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_PROD, secrets.AWS_ROLE_NAME_PROD) || format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_STAGING, secrets.AWS_ROLE_NAME_STAGING) }}
+          role-to-assume: ${{ needs.setup.outputs.environment == 'production' && format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_PROD, secrets.AWS_ROLE_NAME_PROD) || format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_STAGING, secrets.AWS_ROLE_NAME_STAGING) }}
           role-session-name: GitHubActions-Rollback
-          aws-region: ${{ steps.env.outputs.aws-region }}
+          aws-region: ${{ needs.setup.outputs.aws-region }}
           audience: sts.amazonaws.com
 
       - name: Rollback to previous version
@@ -443,10 +433,10 @@ jobs:
           chmod +x scripts/rollback-lambda-deployment.sh
 
           ./scripts/rollback-lambda-deployment.sh \
-            --function "lambda-function-${{ steps.env.outputs.environment }}" \
-            --environment "${{ steps.env.outputs.environment }}" \
+            --function "lambda-function-${{ needs.setup.outputs.environment }}" \
+            --environment "${{ needs.setup.outputs.environment }}" \
             --mode "emergency" \
-            --region "${{ steps.env.outputs.aws-region }}" \
+            --region "${{ needs.setup.outputs.aws-region }}" \
             --force
           
           echo "🔄 Rollback process completed"
@@ -456,7 +446,7 @@ jobs:
           echo "🔍 Verifying rollback was successful..."
           
           # Test the rolled-back function
-          FUNCTION_NAME="lambda-function-${{ steps.env.outputs.environment }}"
+          FUNCTION_NAME="lambda-function-${{ needs.setup.outputs.environment }}"
           
           # Wait for rollback to stabilize
           sleep 30
@@ -465,7 +455,7 @@ jobs:
           TEST_RESULT=$(aws lambda invoke \
             --function-name "$FUNCTION_NAME" \
             --payload '{"test": true, "source": "rollback-verification"}' \
-            --region "${{ steps.env.outputs.aws-region }}" \
+            --region "${{ needs.setup.outputs.aws-region }}" \
             rollback-response.json 2>&1 || echo "ROLLBACK_TEST_FAILED")
           
           if [[ "$TEST_RESULT" == *"ROLLBACK_TEST_FAILED"* ]]; then
@@ -486,8 +476,8 @@ jobs:
         if: always()
         run: |
           echo "📢 Rollback notification"
-          echo "Environment: ${{ steps.env.outputs.environment }}"
-          echo "Function: lambda-function-${{ steps.env.outputs.environment }}"
+          echo "Environment: ${{ needs.setup.outputs.environment }}"
+          echo "Function: lambda-function-${{ needs.setup.outputs.environment }}"
           echo "Rollback Status: ${{ job.status }}"
           echo "Triggered by: ${{ github.event_name }}"
           echo "Commit: ${{ github.sha }}"
@@ -497,8 +487,8 @@ jobs:
           cat > rollback-report.json << EOF
           {
             "rollbackId": "${{ github.run_id }}-rollback",
-            "environment": "${{ steps.env.outputs.environment }}",
-            "functionName": "lambda-function-${{ steps.env.outputs.environment }}",
+            "environment": "${{ needs.setup.outputs.environment }}",
+            "functionName": "lambda-function-${{ needs.setup.outputs.environment }}",
             "rollbackStatus": "${{ job.status }}",
             "triggeredBy": "${{ github.event_name }}",
             "originalCommit": "${{ github.sha }}",
@@ -515,15 +505,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: rollback-artifacts-${{ steps.env.outputs.environment }}
-          path: |
-            rollback-response.json
-            rollback-report.json
-
-      - name: Upload rollback artifacts
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
           name: rollback-artifacts-${{ needs.setup.outputs.environment }}
           path: |
+            rollback-response.json
             rollback-report.json
