@@ -49,3 +49,21 @@ variable "lambda_memory_size" {
     error_message = "Lambda memory size must be between 128 and 10240 MB."
   }
 }
+
+variable "enable_pipeline" {
+  description = "Enable CodePipeline for CI/CD"
+  type        = bool
+  default     = true
+}
+
+variable "enable_manual_approval" {
+  description = "Enable manual approval for production deployments"
+  type        = bool
+  default     = true
+}
+
+variable "notification_email" {
+  description = "Email address for pipeline notifications"
+  type        = string
+  default     = ""
+}
