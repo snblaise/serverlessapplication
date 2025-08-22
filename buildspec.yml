@@ -126,6 +126,16 @@ phases:
         }
         EOF
       
+      # Copy CloudFormation template for deployment
+      - echo "Preparing CloudFormation template..."
+      - |
+        if [ -f "templates/lambda-deployment-template.yaml" ]; then
+          cp templates/lambda-deployment-template.yaml lambda-deployment-template.yaml
+          echo "CloudFormation template prepared for deployment"
+        else
+          echo "WARNING: CloudFormation template not found"
+        fi
+      
       # Sign the package if signing is configured
       - |
         if [ -f "scripts/sign-lambda-package.sh" ]; then
@@ -223,6 +233,7 @@ artifacts:
     - package-manifest.json
     - deployment-metadata.json
     - build-report.json
+    - lambda-deployment-template.yaml
     
     # Checksums and signatures
     - lambda-function.zip.sha256
