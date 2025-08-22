@@ -96,7 +96,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_STAGING, secrets.AWS_ROLE_NAME_STAGING) }}
+          role-to-assume: ${{ secrets.AWS_SECURITY_SCAN_ROLE_ARN }}
           role-session-name: GitHubActions-SecurityScan
           aws-region: ${{ needs.setup.outputs.aws-region }}
           audience: sts.amazonaws.com

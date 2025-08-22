@@ -11,7 +11,7 @@ locals {
   github_oidc_provider_arn = data.aws_iam_openid_connect_provider.github.arn
   
   # Default repository if not provided
-  github_repository = var.github_repository != "" ? var.github_repository : "*"
+  github_repository = var.github_repository != "" ? var.github_repository : "snblaise/serverlessapplication"
 }
 
 # IAM role for GitHub Actions (staging)
@@ -34,9 +34,7 @@ resource "aws_iam_role" "github_actions_staging" {
           }
           StringLike = {
             "token.actions.githubusercontent.com:sub" = [
-              "repo:${local.github_repository}:ref:refs/heads/main",
-              "repo:${local.github_repository}:ref:refs/heads/develop",
-              "repo:${local.github_repository}:pull_request"
+              "repo:${local.github_repository}:*"
             ]
           }
         }
@@ -71,7 +69,7 @@ resource "aws_iam_role" "github_actions_production" {
           }
           StringLike = {
             "token.actions.githubusercontent.com:sub" = [
-              "repo:${local.github_repository}:ref:refs/heads/main"
+              "repo:${local.github_repository}:*"
             ]
           }
         }
@@ -182,7 +180,10 @@ resource "aws_iam_role_policy" "github_actions_policy" {
       {
         Effect = "Allow"
         Action = [
-          "securityhub:BatchImportFindings"
+          "securityhub:BatchImportFindings",
+          "securityhub:DescribeHub",
+          "securityhub:GetFindings",
+          "securityhub:EnableSecurityHub"
         ]
         Resource = "*"
       },
@@ -202,7 +203,7 @@ resource "aws_iam_role_policy" "github_actions_policy" {
           }
         }
       },
-      # IAM permissions for role passing
+      # IAM permissions for role passing and OIDC provider access
       {
         Effect = "Allow"
         Action = [
@@ -212,6 +213,91 @@ resource "aws_iam_role_policy" "github_actions_policy" {
           "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/lambda-function-${var.environment}-execution-role",
           "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/CodeDeployServiceRole-${var.environment}"
         ]
+      },
+      # IAM permissions for infrastructure deployment (Terraform data sources)
+      {
+        Effect = "Allow"
+        Action = [
+          "iam:ListOpenIDConnectProviders",
+          "iam:GetOpenIDConnectProvider",
+          "iam:GetRole",
+          "iam:GetRolePolicy",
+          "iam:ListRolePolicies",
+          "iam:ListAttachedRolePolicies"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+# IAM role for GitHub Actions Security Scanning
+resource "aws_iam_role" "github_actions_security_scan" {
+  count = var.environment == "staging" || var.environment == "production" ? 1 : 0
+  name  = "GitHubActions-SecurityScan"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Federated = local.github_oidc_provider_arn
+        }
+        Action = "sts:AssumeRoleWithWebIdentity"
+        Condition = {
+          StringEquals = {
+            "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+          }
+          StringLike = {
+            "token.actions.githubusercontent.com:sub" = [
+              "repo:${local.github_repository}:*"
+            ]
+          }
+        }
+      }
+    ]
+  })
+
+  tags = {
+    Environment = var.environment
+    Project     = "lambda-production-ready"
+    ManagedBy   = "terraform"
+    Purpose     = "security-scanning"
+  }
+}
+
+# IAM policy for Security Scanning role
+resource "aws_iam_role_policy" "github_actions_security_scan_policy" {
+  count = var.environment == "staging" || var.environment == "production" ? 1 : 0
+  name  = "GitHubActions-SecurityScan-Policy"
+  role  = aws_iam_role.github_actions_security_scan[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      # Security Hub permissions
+      {
+        Effect = "Allow"
+        Action = [
+          "securityhub:BatchImportFindings",
+          "securityhub:DescribeHub",
+          "securityhub:GetFindings",
+          "securityhub:EnableSecurityHub",
+          "securityhub:GetEnabledStandards",
+          "securityhub:BatchUpdateFindings"
+        ]
+        Resource = "*"
+      },
+      # CloudWatch Logs for security scan logs
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ]
+        Resource = "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/github-actions/security-scan*"
       }
     ]
   })
@@ -235,4 +321,9 @@ output "aws_account_id" {
 output "github_oidc_provider_arn" {
   description = "ARN of the GitHub OIDC provider"
   value       = local.github_oidc_provider_arn
+}
+
+output "github_actions_security_scan_role_arn" {
+  description = "ARN of the GitHub Actions Security Scan IAM role"
+  value = length(aws_iam_role.github_actions_security_scan) > 0 ? aws_iam_role.github_actions_security_scan[0].arn : null
 }
