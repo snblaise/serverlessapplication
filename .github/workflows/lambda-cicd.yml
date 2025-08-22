@@ -35,8 +35,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       environment: ${{ steps.env-config.outputs.environment }}
-      aws-account-id: ${{ steps.env-config.outputs.aws-account-id }}
-      aws-role-name: ${{ steps.env-config.outputs.aws-role-name }}
       aws-region: ${{ steps.env-config.outputs.aws-region }}
     steps:
       - name: Determine Environment
@@ -52,16 +50,8 @@ jobs:
 
           echo "environment=${ENVIRONMENT}" >> $GITHUB_OUTPUT
 
-          # Set AWS configuration based on environment
-          if [[ "${ENVIRONMENT}" == "production" ]]; then
-            echo "aws-account-id=${{ secrets.AWS_ACCOUNT_ID_PROD }}" >> $GITHUB_OUTPUT
-            echo "aws-role-name=${{ secrets.AWS_ROLE_NAME_PROD }}" >> $GITHUB_OUTPUT
-            echo "aws-region=us-east-1" >> $GITHUB_OUTPUT
-          else
-            echo "aws-account-id=${{ secrets.AWS_ACCOUNT_ID_STAGING }}" >> $GITHUB_OUTPUT
-            echo "aws-role-name=${{ secrets.AWS_ROLE_NAME_STAGING }}" >> $GITHUB_OUTPUT
-            echo "aws-region=us-east-1" >> $GITHUB_OUTPUT
-          fi
+          # Set AWS region
+          echo "aws-region=us-east-1" >> $GITHUB_OUTPUT
 
   # Lint and test stage
   lint-and-test:
@@ -106,7 +96,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::${{ needs.setup.outputs.aws-account-id }}:role/${{ needs.setup.outputs.aws-role-name }}
+          role-to-assume: ${{ needs.setup.outputs.environment == 'production' && format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_PROD, secrets.AWS_ROLE_NAME_PROD) || format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_STAGING, secrets.AWS_ROLE_NAME_STAGING) }}
           role-session-name: GitHubActions-SecurityScan
           aws-region: ${{ needs.setup.outputs.aws-region }}
           audience: sts.amazonaws.com
@@ -176,7 +166,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::${{ needs.setup.outputs.aws-account-id }}:role/${{ needs.setup.outputs.aws-role-name }}
+          role-to-assume: ${{ needs.setup.outputs.environment == 'production' && format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_PROD, secrets.AWS_ROLE_NAME_PROD) || format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_STAGING, secrets.AWS_ROLE_NAME_STAGING) }}
           role-session-name: GitHubActions-Build
           aws-region: ${{ needs.setup.outputs.aws-region }}
           audience: sts.amazonaws.com
@@ -262,7 +252,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::${{ needs.setup.outputs.aws-account-id }}:role/${{ needs.setup.outputs.aws-role-name }}
+          role-to-assume: ${{ needs.setup.outputs.environment == 'production' && format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_PROD, secrets.AWS_ROLE_NAME_PROD) || format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_STAGING, secrets.AWS_ROLE_NAME_STAGING) }}
           role-session-name: GitHubActions-Deploy
           aws-region: ${{ needs.setup.outputs.aws-region }}
           audience: sts.amazonaws.com
@@ -335,7 +325,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::${{ needs.setup.outputs.aws-account-id }}:role/${{ needs.setup.outputs.aws-role-name }}
+          role-to-assume: ${{ needs.setup.outputs.environment == 'production' && format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_PROD, secrets.AWS_ROLE_NAME_PROD) || format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_STAGING, secrets.AWS_ROLE_NAME_STAGING) }}
           role-session-name: GitHubActions-Rollback
           aws-region: ${{ needs.setup.outputs.aws-region }}
           audience: sts.amazonaws.com
