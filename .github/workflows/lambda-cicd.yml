@@ -96,7 +96,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ needs.setup.outputs.environment == 'production' && format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_PROD, secrets.AWS_ROLE_NAME_PROD) || format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_STAGING, secrets.AWS_ROLE_NAME_STAGING) }}
+          role-to-assume: ${{ format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_STAGING, secrets.AWS_ROLE_NAME_STAGING) }}
           role-session-name: GitHubActions-SecurityScan
           aws-region: ${{ needs.setup.outputs.aws-region }}
           audience: sts.amazonaws.com
@@ -182,7 +182,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ needs.setup.outputs.environment == 'production' && format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_PROD, secrets.AWS_ROLE_NAME_PROD) || format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_STAGING, secrets.AWS_ROLE_NAME_STAGING) }}
+          role-to-assume: ${{ format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_STAGING, secrets.AWS_ROLE_NAME_STAGING) }}
           role-session-name: GitHubActions-Build
           aws-region: ${{ needs.setup.outputs.aws-region }}
           audience: sts.amazonaws.com
@@ -211,8 +211,8 @@ jobs:
       - name: Sign Lambda package with AWS Signer (Optional)
         run: |
           # Check if signing profile exists before attempting to sign
-          SIGNING_PROFILE="lambda-${{ needs.setup.outputs.environment }}"
-          S3_BUCKET="lambda-artifacts-${{ needs.setup.outputs.environment }}"
+          SIGNING_PROFILE="lambda-staging"
+          S3_BUCKET="lambda-artifacts-staging"
           
           echo "Checking if signing profile '$SIGNING_PROFILE' exists..."
           
@@ -223,7 +223,7 @@ jobs:
             chmod +x scripts/sign-lambda-package.sh
             ./scripts/sign-lambda-package.sh \
               --file lambda-function.zip \
-              --environment "${{ needs.setup.outputs.environment }}" \
+              --environment "staging" \
               --profile "$SIGNING_PROFILE" \
               --bucket "$S3_BUCKET" \
               --region "${{ needs.setup.outputs.aws-region }}"
@@ -236,7 +236,7 @@ jobs:
           {
             "signingJobId": null,
             "signingProfile": "$SIGNING_PROFILE",
-            "environment": "${{ needs.setup.outputs.environment }}",
+            "environment": "staging",
             "status": "skipped",
             "reason": "Signing profile not found",
             "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
@@ -281,7 +281,7 @@ jobs:
     needs:
       - setup
       - build-and-package
-    if: needs.setup.outputs.environment == 'staging' || github.ref == 'refs/heads/develop' || github.event_name == 'pull_request'
+    if: always() && needs.build-and-package.result == 'success'
     environment:
       name: staging
       url: https://console.aws.amazon.com/lambda/home?region=${{ needs.setup.outputs.aws-region }}
