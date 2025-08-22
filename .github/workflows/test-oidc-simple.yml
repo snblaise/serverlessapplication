@@ -20,7 +20,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID_STAGING }}:role/GitHubActions-Lambda-Staging
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID_STAGING }}:role/${{ secrets.AWS_ROLE_NAME_STAGING }}
           role-session-name: GitHubActions-OIDCTest
           aws-region: us-east-1
           audience: sts.amazonaws.com

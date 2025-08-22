@@ -53,10 +53,10 @@ jobs:
 
           # Set AWS role ARN based on environment
           if [[ "${ENVIRONMENT}" == "production" ]]; then
-            echo "aws-role-arn=arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID_PROD }}:role/GitHubActions-Lambda-Production" >> $GITHUB_OUTPUT
+            echo "aws-role-arn=arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID_PROD }}:role/${{ secrets.AWS_ROLE_NAME_PROD }}" >> $GITHUB_OUTPUT
             echo "aws-region=us-east-1" >> $GITHUB_OUTPUT
           else
-            echo "aws-role-arn=arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID_STAGING }}:role/GitHubActions-Lambda-Staging" >> $GITHUB_OUTPUT
+            echo "aws-role-arn=arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID_STAGING }}:role/${{ secrets.AWS_ROLE_NAME_STAGING }}" >> $GITHUB_OUTPUT
             echo "aws-region=us-east-1" >> $GITHUB_OUTPUT
           fi
 
