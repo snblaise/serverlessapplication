@@ -182,7 +182,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_STAGING, secrets.AWS_ROLE_NAME_STAGING) }}
+          role-to-assume: ${{ secrets.AWS_STAGING_ROLE_ARN }}
           role-session-name: GitHubActions-Build
           aws-region: ${{ needs.setup.outputs.aws-region }}
           audience: sts.amazonaws.com
@@ -294,7 +294,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_STAGING, secrets.AWS_ROLE_NAME_STAGING) }}
+          role-to-assume: ${{ secrets.AWS_STAGING_ROLE_ARN }}
           role-session-name: GitHubActions-Infrastructure-Staging
           aws-region: ${{ needs.setup.outputs.aws-region }}
           audience: sts.amazonaws.com
@@ -403,7 +403,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_STAGING, secrets.AWS_ROLE_NAME_STAGING) }}
+          role-to-assume: ${{ secrets.AWS_STAGING_ROLE_ARN }}
           role-session-name: GitHubActions-Deploy-Staging
           aws-region: ${{ needs.setup.outputs.aws-region }}
           audience: sts.amazonaws.com
@@ -574,7 +574,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_PROD, secrets.AWS_ROLE_NAME_PROD) }}
+          role-to-assume: ${{ secrets.AWS_PRODUCTION_ROLE_ARN }}
           role-session-name: GitHubActions-Infrastructure-Production
           aws-region: ${{ needs.setup.outputs.aws-region }}
           audience: sts.amazonaws.com
@@ -684,7 +684,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_PROD, secrets.AWS_ROLE_NAME_PROD) }}
+          role-to-assume: ${{ secrets.AWS_PRODUCTION_ROLE_ARN }}
           role-session-name: GitHubActions-Deploy-Production
           aws-region: ${{ needs.setup.outputs.aws-region }}
           audience: sts.amazonaws.com
@@ -821,7 +821,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_STAGING, secrets.AWS_ROLE_NAME_STAGING) }}
+          role-to-assume: ${{ secrets.AWS_STAGING_ROLE_ARN }}
           role-session-name: GitHubActions-Rollback-Staging
           aws-region: ${{ needs.setup.outputs.aws-region }}
           audience: sts.amazonaws.com
@@ -900,7 +900,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_PROD, secrets.AWS_ROLE_NAME_PROD) }}
+          role-to-assume: ${{ secrets.AWS_PRODUCTION_ROLE_ARN }}
           role-session-name: GitHubActions-Rollback-Production
           aws-region: ${{ needs.setup.outputs.aws-region }}
           audience: sts.amazonaws.com
@@ -1006,7 +1006,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ github.event.inputs.environment == 'production' && format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_PROD, secrets.AWS_ROLE_NAME_PROD) || format('arn:aws:iam::{0}:role/{1}', secrets.AWS_ACCOUNT_ID_STAGING, secrets.AWS_ROLE_NAME_STAGING) }}
+          role-to-assume: ${{ github.event.inputs.environment == 'production' && secrets.AWS_PRODUCTION_ROLE_ARN || secrets.AWS_STAGING_ROLE_ARN }}
           role-session-name: GitHubActions-Manual-Rollback
           aws-region: ${{ needs.setup.outputs.aws-region }}
           audience: sts.amazonaws.com
