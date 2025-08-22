@@ -86,7 +86,8 @@ resource "aws_codedeploy_deployment_group" "lambda_deployment_group" {
 
 # S3 bucket for deployment artifacts
 resource "aws_s3_bucket" "lambda_artifacts" {
-  bucket = "lambda-artifacts-${var.environment}-${random_id.bucket_suffix.hex}"
+  bucket        = "lambda-artifacts-${var.environment}-${data.aws_caller_identity.current.account_id}"
+  force_destroy = var.environment != "production"
   
   tags = {
     Environment = var.environment
@@ -111,6 +112,28 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "lambda_artifacts"
   }
 }
 
-resource "random_id" "bucket_suffix" {
-  byte_length = 4
+resource "aws_s3_bucket_lifecycle_configuration" "lambda_artifacts" {
+  bucket = aws_s3_bucket.lambda_artifacts.id
+
+  rule {
+    id     = "cleanup_old_versions"
+    status = "Enabled"
+
+    noncurrent_version_expiration {
+      noncurrent_days = 30
+    }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "lambda_artifacts" {
+  bucket = aws_s3_bucket.lambda_artifacts.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
 }
