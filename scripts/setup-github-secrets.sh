@@ -124,18 +124,13 @@ else
     exit 1
 fi
 
-# Optional: Set AWS account ID secrets
-echo ""
-read -p "Do you want to set optional AWS_ACCOUNT_ID secrets? (y/N): " -n 1 -r
-echo
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    echo "Setting AWS_ACCOUNT_ID_STAGING..."
-    gh secret set AWS_ACCOUNT_ID_STAGING --body "$AWS_ACCOUNT_ID" --repo "$REPO_FULL_NAME"
-    
-    echo "Setting AWS_ACCOUNT_ID_PROD..."
-    gh secret set AWS_ACCOUNT_ID_PROD --body "$AWS_ACCOUNT_ID" --repo "$REPO_FULL_NAME"
-    
-    echo -e "${GREEN}✅ Optional AWS account ID secrets set${NC}"
+# Set AWS account ID secret (required for OIDC role ARN construction)
+echo "Setting AWS_ACCOUNT_ID..."
+if gh secret set AWS_ACCOUNT_ID --body "$AWS_ACCOUNT_ID" --repo "$REPO_FULL_NAME"; then
+    echo -e "${GREEN}✅ AWS_ACCOUNT_ID secret set successfully${NC}"
+else
+    echo -e "${RED}❌ Failed to set AWS_ACCOUNT_ID secret${NC}"
+    exit 1
 fi
 
 echo ""
@@ -157,14 +152,14 @@ echo "   ${YELLOW}git commit --allow-empty -m \"trigger workflow\"${NC}"
 echo "   ${YELLOW}git push origin main${NC}"
 echo ""
 echo -e "${BLUE}📖 What happens next:${NC}"
-echo "  ✅ Bootstrap step will create OIDC roles using your AWS credentials"
-echo "  ✅ All subsequent steps will use secure OIDC authentication"
+echo "  ⚠️  You need to deploy bootstrap infrastructure first: ./scripts/deploy-bootstrap.sh"
+echo "  ✅ GitHub Actions will use OIDC authentication with the created roles"
 echo "  ✅ Complete infrastructure will be deployed automatically"
 echo "  ✅ Lambda function will be built and deployed"
 echo ""
 echo -e "${GREEN}🔒 Security Note:${NC}"
-echo "Your AWS access keys are only used for the initial bootstrap step."
-echo "After that, the workflow uses secure OIDC authentication with temporary credentials."
+echo "AWS access keys are only used for bootstrap infrastructure deployment."
+echo "The GitHub Actions workflow uses secure OIDC authentication with temporary credentials."
 echo ""
 echo -e "${BLUE}📚 For more information, see:${NC}"
 echo "  - docs/GITHUB_ACTIONS_SETUP.md"

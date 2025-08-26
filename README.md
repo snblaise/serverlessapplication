@@ -150,11 +150,15 @@ This package supports compliance with:
 For the fastest deployment experience:
 
 ```bash
-# Run the complete setup and deployment
+# 1. Deploy bootstrap infrastructure (one-time setup)
+./scripts/deploy-bootstrap.sh
+
+# 2. Run the complete setup and deployment
 ./scripts/quick-start.sh
 ```
 
 This will automatically:
+- ✅ Deploy OIDC roles and foundational infrastructure
 - ✅ Install dependencies
 - ✅ Configure GitHub secrets
 - ✅ Trigger the deployment pipeline
@@ -165,24 +169,27 @@ This will automatically:
 For more control over the process:
 
 ```bash
-# 1. Set up GitHub secrets automatically
+# 1. Deploy bootstrap infrastructure manually (one-time setup)
+./scripts/deploy-bootstrap.sh
+
+# 2. Set up GitHub secrets automatically
 ./scripts/setup-github-secrets.sh
 
-# 2. Trigger the complete deployment pipeline
+# 3. Trigger the complete deployment pipeline
 gh workflow run "Lambda CI/CD Pipeline" --field environment=staging
 
-# 3. Monitor deployment progress
+# 4. Monitor deployment progress
 gh run list --workflow="lambda-cicd.yml"
 ```
 
 This automated approach will:
-- ✅ Create OIDC roles and infrastructure automatically
+- ✅ Create OIDC roles and infrastructure (manual bootstrap step)
 - ✅ Deploy all AWS resources using Terraform
 - ✅ Build and deploy the Lambda function with security scanning
 - ✅ Set up monitoring, alerting, and compliance controls
 - ✅ Provide complete audit trail and evidence collection
 
-For detailed setup instructions, see [GitHub Actions Setup Guide](docs/GITHUB_ACTIONS_SETUP.md).
+**Important**: The bootstrap infrastructure must be deployed once before running the GitHub Actions workflow. This creates the OIDC provider and IAM roles needed for secure authentication.
 
 ### Option B: Manual Implementation
 

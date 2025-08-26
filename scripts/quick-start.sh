@@ -51,6 +51,19 @@ fi
 echo -e "${GREEN}✅ All prerequisites are installed${NC}"
 echo ""
 
+# Deploy bootstrap infrastructure first
+echo -e "${BLUE}🏗️ Deploying bootstrap infrastructure (OIDC roles)...${NC}"
+echo "This is a one-time setup that creates the foundational AWS resources."
+echo ""
+if [[ -x "./scripts/deploy-bootstrap.sh" ]]; then
+    ./scripts/deploy-bootstrap.sh
+else
+    echo -e "${RED}❌ deploy-bootstrap.sh not found or not executable${NC}"
+    exit 1
+fi
+
+echo ""
+
 # Install dependencies
 echo -e "${BLUE}📦 Installing Node.js dependencies...${NC}"
 npm install
@@ -124,8 +137,8 @@ echo ""
 echo -e "${GREEN}🎉 Quick Start Complete!${NC}"
 echo ""
 echo -e "${BLUE}📖 What's happening now:${NC}"
-echo "  1. ✅ GitHub secrets configured"
-echo "  2. 🔄 Bootstrap infrastructure deploying (OIDC roles)"
+echo "  1. ✅ Bootstrap infrastructure deployed (OIDC roles)"
+echo "  2. ✅ GitHub secrets configured"
 echo "  3. 🔄 Main infrastructure deploying (Lambda, monitoring, etc.)"
 echo "  4. 🔄 Application building and deploying"
 echo "  5. 🔄 Security scans and compliance checks running"

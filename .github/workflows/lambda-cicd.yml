@@ -18,14 +18,6 @@ name: Lambda CI/CD Pipeline
         options:
           - staging
           - production
-      force_bootstrap:
-        description: Force bootstrap infrastructure deployment (even if roles exist)
-        required: false
-        default: 'false'
-        type: choice
-        options:
-          - 'true'
-          - 'false'
 
 env:
   NODE_VERSION: '18'
@@ -38,124 +30,17 @@ permissions:
   pull-requests: write # Required for PR comments
 
 jobs:
-  # Bootstrap infrastructure - Deploy OIDC roles and foundational resources
-  bootstrap-infrastructure:
-    runs-on: ubuntu-latest
-    outputs:
-      staging-role-arn: ${{ steps.bootstrap-deploy.outputs.staging-role-arn }}
-      production-role-arn: ${{ steps.bootstrap-deploy.outputs.production-role-arn }}
-      security-scan-role-arn: ${{ steps.bootstrap-deploy.outputs.security-scan-role-arn }}
-      bootstrap-completed: ${{ steps.bootstrap-deploy.outputs.completed }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Configure AWS credentials (using access keys for bootstrap)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: "1.5.0"
-
-      - name: Check if OIDC provider exists
-        id: check-oidc
-        run: |
-          echo "🔍 Checking if GitHub OIDC provider already exists..."
-          
-          # Check if OIDC provider exists
-          if aws iam get-open-id-connect-provider --open-id-connect-provider-arn "arn:aws:iam::$(aws sts get-caller-identity --query Account --output text):oidc-provider/token.actions.githubusercontent.com" >/dev/null 2>&1; then
-            echo "✅ GitHub OIDC provider already exists"
-            echo "provider-exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "🔧 GitHub OIDC provider does not exist - will create"
-            echo "provider-exists=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Deploy bootstrap infrastructure
-        id: bootstrap-deploy
-        working-directory: infrastructure/bootstrap
-        run: |
-          echo "🚀 Deploying Bootstrap Infrastructure for GitHub Actions"
-          echo "======================================================"
-          
-          # Initialize Terraform
-          terraform init
-          
-          # Validate configuration
-          terraform validate
-          
-          # Plan the deployment
-          terraform plan -out=bootstrap.tfplan
-          
-          # Apply the configuration
-          terraform apply -auto-approve bootstrap.tfplan
-          
-          # Clean up plan file
-          rm -f bootstrap.tfplan
-          
-          echo "✅ Bootstrap Infrastructure Deployment Complete!"
-          
-          # Output role ARNs for use in subsequent jobs
-          STAGING_ROLE_ARN=$(terraform output -raw github_actions_staging_role_arn)
-          PRODUCTION_ROLE_ARN=$(terraform output -raw github_actions_production_role_arn)
-          SECURITY_SCAN_ROLE_ARN=$(terraform output -raw github_actions_security_scan_role_arn)
-          
-          echo "staging-role-arn=${STAGING_ROLE_ARN}" >> $GITHUB_OUTPUT
-          echo "production-role-arn=${PRODUCTION_ROLE_ARN}" >> $GITHUB_OUTPUT
-          echo "security-scan-role-arn=${SECURITY_SCAN_ROLE_ARN}" >> $GITHUB_OUTPUT
-          echo "completed=true" >> $GITHUB_OUTPUT
-          
-          echo "🔑 Role ARNs created:"
-          echo "  Staging: ${STAGING_ROLE_ARN}"
-          echo "  Production: ${PRODUCTION_ROLE_ARN}"
-          echo "  Security Scan: ${SECURITY_SCAN_ROLE_ARN}"
-          echo ""
-          echo "✅ Bootstrap infrastructure is ready for OIDC authentication"
-
-      - name: Test OIDC authentication
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ steps.bootstrap-deploy.outputs.staging-role-arn }}
-          role-session-name: GitHubActions-Bootstrap-Test
-          aws-region: us-east-1
-          audience: sts.amazonaws.com
-
-      - name: Verify OIDC authentication works
-        run: |
-          echo "🧪 Testing OIDC authentication..."
-          
-          # Test AWS CLI with OIDC credentials
-          CALLER_IDENTITY=$(aws sts get-caller-identity)
-          echo "✅ OIDC authentication successful!"
-          echo "Assumed role identity: $CALLER_IDENTITY"
-
-      - name: Upload bootstrap artifacts
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: bootstrap-infrastructure-artifacts
-          path: |
-            infrastructure/bootstrap/terraform.tfstate
-            infrastructure/bootstrap/.terraform.lock.hcl
-
-  # Environment configuration and OIDC setup
+  # Environment configuration - assumes bootstrap infrastructure has been deployed manually
   setup:
     runs-on: ubuntu-latest
-    needs: bootstrap-infrastructure
-    if: needs.bootstrap-infrastructure.outputs.bootstrap-completed == 'true'
     outputs:
       environment: ${{ steps.env-config.outputs.environment }}
       aws-region: ${{ steps.env-config.outputs.aws-region }}
-      staging-role-arn: ${{ needs.bootstrap-infrastructure.outputs.staging-role-arn }}
-      production-role-arn: ${{ needs.bootstrap-infrastructure.outputs.production-role-arn }}
-      security-scan-role-arn: ${{ needs.bootstrap-infrastructure.outputs.security-scan-role-arn }}
+      staging-role-arn: ${{ steps.env-config.outputs.staging-role-arn }}
+      production-role-arn: ${{ steps.env-config.outputs.production-role-arn }}
+      security-scan-role-arn: ${{ steps.env-config.outputs.security-scan-role-arn }}
     steps:
-      - name: Determine Environment
+      - name: Determine Environment and Role ARNs
         id: env-config
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
@@ -166,15 +51,35 @@ jobs:
             ENVIRONMENT="staging"
           fi
 
+          # Get AWS Account ID for role ARN construction
+          AWS_ACCOUNT_ID="${{ secrets.AWS_ACCOUNT_ID }}"
+          if [[ -z "$AWS_ACCOUNT_ID" ]]; then
+            echo "❌ AWS_ACCOUNT_ID secret is required but not set"
+            echo "Please add your AWS Account ID as a repository secret named 'AWS_ACCOUNT_ID'"
+            exit 1
+          fi
+
+          # Construct role ARNs based on bootstrap infrastructure naming convention
+          STAGING_ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/GitHubActions-StagingRole"
+          PRODUCTION_ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/GitHubActions-ProductionRole"
+          SECURITY_SCAN_ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/GitHubActions-SecurityScanRole"
+
           echo "environment=${ENVIRONMENT}" >> $GITHUB_OUTPUT
           echo "aws-region=us-east-1" >> $GITHUB_OUTPUT
+          echo "staging-role-arn=${STAGING_ROLE_ARN}" >> $GITHUB_OUTPUT
+          echo "production-role-arn=${PRODUCTION_ROLE_ARN}" >> $GITHUB_OUTPUT
+          echo "security-scan-role-arn=${SECURITY_SCAN_ROLE_ARN}" >> $GITHUB_OUTPUT
           
           echo "🔧 Environment Configuration:"
           echo "  Environment: ${ENVIRONMENT}"
           echo "  AWS Region: us-east-1"
-          echo "  Staging Role: ${{ needs.bootstrap-infrastructure.outputs.staging-role-arn }}"
-          echo "  Production Role: ${{ needs.bootstrap-infrastructure.outputs.production-role-arn }}"
-          echo "  Security Scan Role: ${{ needs.bootstrap-infrastructure.outputs.security-scan-role-arn }}"
+          echo "  AWS Account: ${AWS_ACCOUNT_ID}"
+          echo "  Staging Role: ${STAGING_ROLE_ARN}"
+          echo "  Production Role: ${PRODUCTION_ROLE_ARN}"
+          echo "  Security Scan Role: ${SECURITY_SCAN_ROLE_ARN}"
+          echo ""
+          echo "⚠️  Note: This workflow assumes bootstrap infrastructure has been deployed manually."
+          echo "   If roles don't exist, run: ./scripts/deploy-bootstrap.sh"
 
   # Lint and test stage
   lint-and-test:
