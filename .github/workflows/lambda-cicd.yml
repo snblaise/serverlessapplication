@@ -60,9 +60,9 @@ jobs:
           fi
 
           # Construct role ARNs based on bootstrap infrastructure naming convention
-          STAGING_ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/GitHubActions-StagingRole"
-          PRODUCTION_ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/GitHubActions-ProductionRole"
-          SECURITY_SCAN_ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/GitHubActions-SecurityScanRole"
+          STAGING_ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/GitHubActions-Lambda-Staging"
+          PRODUCTION_ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/GitHubActions-Lambda-Production"
+          SECURITY_SCAN_ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/GitHubActions-SecurityScan"
 
           echo "environment=${ENVIRONMENT}" >> $GITHUB_OUTPUT
           echo "aws-region=us-east-1" >> $GITHUB_OUTPUT
