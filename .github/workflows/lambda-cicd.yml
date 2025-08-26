@@ -30,12 +30,87 @@ permissions:
   pull-requests: write # Required for PR comments
 
 jobs:
+  # Bootstrap infrastructure - Deploy OIDC roles and foundational resources
+  bootstrap-infrastructure:
+    runs-on: ubuntu-latest
+    outputs:
+      staging-role-arn: ${{ steps.bootstrap-deploy.outputs.staging-role-arn }}
+      production-role-arn: ${{ steps.bootstrap-deploy.outputs.production-role-arn }}
+      security-scan-role-arn: ${{ steps.bootstrap-deploy.outputs.security-scan-role-arn }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (using existing credentials)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+        continue-on-error: true
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.5.0"
+
+      - name: Deploy bootstrap infrastructure
+        id: bootstrap-deploy
+        working-directory: infrastructure/bootstrap
+        run: |
+          echo "🚀 Deploying Bootstrap Infrastructure for GitHub Actions"
+          echo "======================================================"
+          
+          # Initialize Terraform
+          terraform init
+          
+          # Validate configuration
+          terraform validate
+          
+          # Plan the deployment
+          terraform plan -out=bootstrap.tfplan
+          
+          # Apply the configuration
+          terraform apply -auto-approve bootstrap.tfplan
+          
+          # Clean up plan file
+          rm -f bootstrap.tfplan
+          
+          echo "✅ Bootstrap Infrastructure Deployment Complete!"
+          
+          # Output role ARNs for use in subsequent jobs
+          STAGING_ROLE_ARN=$(terraform output -raw github_actions_staging_role_arn)
+          PRODUCTION_ROLE_ARN=$(terraform output -raw github_actions_production_role_arn)
+          SECURITY_SCAN_ROLE_ARN=$(terraform output -raw github_actions_security_scan_role_arn)
+          
+          echo "staging-role-arn=${STAGING_ROLE_ARN}" >> $GITHUB_OUTPUT
+          echo "production-role-arn=${PRODUCTION_ROLE_ARN}" >> $GITHUB_OUTPUT
+          echo "security-scan-role-arn=${SECURITY_SCAN_ROLE_ARN}" >> $GITHUB_OUTPUT
+          
+          echo "🔑 Role ARNs created:"
+          echo "  Staging: ${STAGING_ROLE_ARN}"
+          echo "  Production: ${PRODUCTION_ROLE_ARN}"
+          echo "  Security Scan: ${SECURITY_SCAN_ROLE_ARN}"
+
+      - name: Upload bootstrap artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bootstrap-infrastructure-artifacts
+          path: |
+            infrastructure/bootstrap/terraform.tfstate
+            infrastructure/bootstrap/.terraform.lock.hcl
+
   # Environment configuration and OIDC setup
   setup:
     runs-on: ubuntu-latest
+    needs: bootstrap-infrastructure
     outputs:
       environment: ${{ steps.env-config.outputs.environment }}
       aws-region: ${{ steps.env-config.outputs.aws-region }}
+      staging-role-arn: ${{ needs.bootstrap-infrastructure.outputs.staging-role-arn }}
+      production-role-arn: ${{ needs.bootstrap-infrastructure.outputs.production-role-arn }}
+      security-scan-role-arn: ${{ needs.bootstrap-infrastructure.outputs.security-scan-role-arn }}
     steps:
       - name: Determine Environment
         id: env-config
@@ -52,6 +127,13 @@ jobs:
 
           # Set AWS region
           echo "aws-region=us-east-1" >> $GITHUB_OUTPUT
+          
+          echo "🔧 Environment Configuration:"
+          echo "  Environment: ${ENVIRONMENT}"
+          echo "  AWS Region: us-east-1"
+          echo "  Staging Role: ${{ needs.bootstrap-infrastructure.outputs.staging-role-arn }}"
+          echo "  Production Role: ${{ needs.bootstrap-infrastructure.outputs.production-role-arn }}"
+          echo "  Security Scan Role: ${{ needs.bootstrap-infrastructure.outputs.security-scan-role-arn }}"
 
   # Lint and test stage
   lint-and-test:
@@ -96,7 +178,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_SECURITY_SCAN_ROLE_ARN }}
+          role-to-assume: ${{ needs.setup.outputs.security-scan-role-arn }}
           role-session-name: GitHubActions-SecurityScan
           aws-region: ${{ needs.setup.outputs.aws-region }}
           audience: sts.amazonaws.com
@@ -182,7 +264,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_STAGING_ROLE_ARN }}
+          role-to-assume: ${{ needs.setup.outputs.staging-role-arn }}
           role-session-name: GitHubActions-Build
           aws-region: ${{ needs.setup.outputs.aws-region }}
           audience: sts.amazonaws.com
@@ -294,7 +376,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_STAGING_ROLE_ARN }}
+          role-to-assume: ${{ needs.setup.outputs.staging-role-arn }}
           role-session-name: GitHubActions-Infrastructure-Staging
           aws-region: ${{ needs.setup.outputs.aws-region }}
           audience: sts.amazonaws.com
@@ -403,7 +485,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_STAGING_ROLE_ARN }}
+          role-to-assume: ${{ needs.setup.outputs.staging-role-arn }}
           role-session-name: GitHubActions-Deploy-Staging
           aws-region: ${{ needs.setup.outputs.aws-region }}
           audience: sts.amazonaws.com
@@ -574,7 +656,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_PRODUCTION_ROLE_ARN }}
+          role-to-assume: ${{ needs.setup.outputs.production-role-arn }}
           role-session-name: GitHubActions-Infrastructure-Production
           aws-region: ${{ needs.setup.outputs.aws-region }}
           audience: sts.amazonaws.com
@@ -684,7 +766,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_PRODUCTION_ROLE_ARN }}
+          role-to-assume: ${{ needs.setup.outputs.production-role-arn }}
           role-session-name: GitHubActions-Deploy-Production
           aws-region: ${{ needs.setup.outputs.aws-region }}
           audience: sts.amazonaws.com
@@ -821,7 +903,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_STAGING_ROLE_ARN }}
+          role-to-assume: ${{ needs.setup.outputs.staging-role-arn }}
           role-session-name: GitHubActions-Rollback-Staging
           aws-region: ${{ needs.setup.outputs.aws-region }}
           audience: sts.amazonaws.com
@@ -900,7 +982,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_PRODUCTION_ROLE_ARN }}
+          role-to-assume: ${{ needs.setup.outputs.production-role-arn }}
           role-session-name: GitHubActions-Rollback-Production
           aws-region: ${{ needs.setup.outputs.aws-region }}
           audience: sts.amazonaws.com
@@ -1006,7 +1088,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ github.event.inputs.environment == 'production' && secrets.AWS_PRODUCTION_ROLE_ARN || secrets.AWS_STAGING_ROLE_ARN }}
+          role-to-assume: ${{ github.event.inputs.environment == 'production' && needs.setup.outputs.production-role-arn || needs.setup.outputs.staging-role-arn }}
           role-session-name: GitHubActions-Manual-Rollback
           aws-region: ${{ needs.setup.outputs.aws-region }}
           audience: sts.amazonaws.com
