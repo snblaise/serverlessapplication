@@ -84,14 +84,9 @@ resource "aws_codedeploy_deployment_group" "lambda_deployment_group" {
   }
 }
 
-# Random suffix for S3 bucket name to ensure uniqueness
-resource "random_id" "bucket_suffix" {
-  byte_length = 4
-}
-
-# S3 bucket for deployment artifacts
+# S3 bucket for deployment artifacts with static unique name
 resource "aws_s3_bucket" "lambda_artifacts" {
-  bucket        = "lambda-artifacts-${var.environment}-${random_id.bucket_suffix.hex}"
+  bucket        = "lambda-artifacts-${var.environment}-snblaise-2025"
   force_destroy = var.environment != "production"
   
   tags = {
