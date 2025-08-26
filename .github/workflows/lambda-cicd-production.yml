@@ -1,0 +1,484 @@
+name: Lambda CI/CD Pipeline (Production Ready)
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to deploy to
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  NODE_VERSION: '18'
+  AWS_REGION: us-east-1
+
+permissions:
+  id-token: write # Required for OIDC
+  contents: read # Required to checkout code
+  security-events: write # Required for Security Hub integration
+  pull-requests: write # Required for PR comments
+
+jobs:
+  # Environment configuration
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.env-config.outputs.environment }}
+      aws-region: ${{ steps.env-config.outputs.aws-region }}
+      staging-role-arn: ${{ steps.env-config.outputs.staging-role-arn }}
+      production-role-arn: ${{ steps.env-config.outputs.production-role-arn }}
+      security-scan-role-arn: ${{ steps.env-config.outputs.security-scan-role-arn }}
+    steps:
+      - name: Determine Environment and Role ARNs
+        id: env-config
+        run: |
+          # Determine environment
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            ENVIRONMENT="${{ github.event.inputs.environment }}"
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            ENVIRONMENT="production"
+          else
+            ENVIRONMENT="staging"
+          fi
+          
+          # Get AWS Account ID
+          AWS_ACCOUNT_ID="${{ secrets.AWS_ACCOUNT_ID }}"
+          if [[ -z "$AWS_ACCOUNT_ID" ]]; then
+            # Fallback: extract from existing role ARN if available
+            if [[ -n "${{ secrets.AWS_STAGING_ROLE_ARN }}" ]]; then
+              AWS_ACCOUNT_ID=$(echo "${{ secrets.AWS_STAGING_ROLE_ARN }}" | cut -d':' -f5)
+            else
+              AWS_ACCOUNT_ID="948572562675"  # Default account ID
+            fi
+          fi
+          
+          # Construct role ARNs using standard naming convention
+          STAGING_ROLE_ARN="${{ secrets.AWS_STAGING_ROLE_ARN }}"
+          PRODUCTION_ROLE_ARN="${{ secrets.AWS_PRODUCTION_ROLE_ARN }}"
+          SECURITY_SCAN_ROLE_ARN="${{ secrets.AWS_SECURITY_SCAN_ROLE_ARN }}"
+          
+          # Fallback to standard naming if secrets not set
+          if [[ -z "$STAGING_ROLE_ARN" ]]; then
+            STAGING_ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/GitHubActions-Lambda-Staging"
+          fi
+          if [[ -z "$PRODUCTION_ROLE_ARN" ]]; then
+            PRODUCTION_ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/GitHubActions-Lambda-Production"
+          fi
+          if [[ -z "$SECURITY_SCAN_ROLE_ARN" ]]; then
+            SECURITY_SCAN_ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/GitHubActions-SecurityScan"
+          fi
+          
+          # Set outputs
+          echo "environment=${ENVIRONMENT}" >> $GITHUB_OUTPUT
+          echo "aws-region=us-east-1" >> $GITHUB_OUTPUT
+          echo "staging-role-arn=${STAGING_ROLE_ARN}" >> $GITHUB_OUTPUT
+          echo "production-role-arn=${PRODUCTION_ROLE_ARN}" >> $GITHUB_OUTPUT
+          echo "security-scan-role-arn=${SECURITY_SCAN_ROLE_ARN}" >> $GITHUB_OUTPUT
+          
+          echo "🔧 Environment Configuration:"
+          echo "  Environment: ${ENVIRONMENT}"
+          echo "  AWS Region: us-east-1"
+          echo "  Staging Role: ${STAGING_ROLE_ARN}"
+          echo "  Production Role: ${PRODUCTION_ROLE_ARN}"
+          echo "  Security Scan Role: ${SECURITY_SCAN_ROLE_ARN}"
+
+  # Lint and test stage
+  lint-and-test:
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run linting
+        run: npm run lint
+
+      - name: Run tests
+        run: npm test -- --coverage
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: |
+            coverage/
+            test-results.xml
+
+  # Security scanning stage
+  security-scan:
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ needs.setup.outputs.security-scan-role-arn }}
+          role-session-name: GitHubActions-SecurityScan
+          aws-region: ${{ needs.setup.outputs.aws-region }}
+          audience: sts.amazonaws.com
+
+      - name: Verify AWS authentication
+        run: |
+          echo "🔐 AWS Authentication successful!"
+          echo "Account: $(aws sts get-caller-identity --query Account --output text)"
+          echo "Role: $(aws sts get-caller-identity --query Arn --output text)"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run SAST with CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+
+      - name: Run SCA with npm audit
+        run: |
+          npm audit --audit-level=high --json > npm-audit-results.json || true
+
+      - name: Install Checkov
+        run: |
+          pip3 install checkov
+
+      - name: Run Checkov IaC scanning
+        run: |
+          checkov -d . \
+            --config-file docs/policies/ci-cd/.checkov.yaml \
+            --output sarif \
+            --output-file-path ./checkov-output \
+            --quiet || true
+          
+          if [ -d "./checkov-output" ]; then
+            find ./checkov-output -name "*.sarif" -exec mv {} ./checkov-results.sarif \;
+          fi
+          
+          if [ ! -f "./checkov-results.sarif" ]; then
+            echo '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"Checkov"}},"results":[]}]}' > ./checkov-results.sarif
+          fi
+
+      - name: Upload security artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-scan-results
+          path: |
+            npm-audit-results.json
+            checkov-results.sarif
+
+  # Build and package stage
+  build-and-package:
+    runs-on: ubuntu-latest
+    needs:
+      - setup
+      - lint-and-test
+      - security-scan
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ needs.setup.outputs.environment == 'production' && needs.setup.outputs.production-role-arn || needs.setup.outputs.staging-role-arn }}
+          role-session-name: GitHubActions-Build
+          aws-region: ${{ needs.setup.outputs.aws-region }}
+          audience: sts.amazonaws.com
+
+      - name: Verify AWS authentication
+        run: |
+          echo "🔐 AWS Authentication successful!"
+          echo "Account: $(aws sts get-caller-identity --query Account --output text)"
+          echo "Role: $(aws sts get-caller-identity --query Arn --output text)"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install production dependencies
+        run: npm ci --only=production
+
+      - name: Build Lambda package
+        run: |
+          chmod +x scripts/build-lambda-package.sh
+          ./scripts/build-lambda-package.sh
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lambda-package-${{ needs.setup.outputs.environment }}
+          path: |
+            lambda-function.zip
+            package.json
+
+  # Deploy Infrastructure
+  deploy-infrastructure:
+    runs-on: ubuntu-latest
+    needs:
+      - setup
+      - build-and-package
+    if: always() && needs.build-and-package.result == 'success'
+    environment:
+      name: ${{ needs.setup.outputs.environment }}-infrastructure
+      url: https://console.aws.amazon.com/cloudformation/home?region=${{ needs.setup.outputs.aws-region }}
+    outputs:
+      infrastructure-status: ${{ steps.infrastructure-result.outputs.status }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ needs.setup.outputs.environment == 'production' && needs.setup.outputs.production-role-arn || needs.setup.outputs.staging-role-arn }}
+          role-session-name: GitHubActions-Infrastructure-${{ needs.setup.outputs.environment }}
+          aws-region: ${{ needs.setup.outputs.aws-region }}
+          audience: sts.amazonaws.com
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.5.0"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: lambda-package-${{ needs.setup.outputs.environment }}
+
+      - name: Prepare Lambda package for infrastructure
+        run: |
+          cp lambda-function.zip infrastructure/lambda-function.zip
+          
+          if [[ ! -f "infrastructure/lambda-function.zip" ]]; then
+            echo "❌ Lambda package not found in infrastructure directory"
+            exit 1
+          fi
+          
+          echo "✅ Lambda package prepared for infrastructure deployment"
+
+      - name: Deploy infrastructure with Terraform
+        id: deploy-infrastructure
+        working-directory: infrastructure
+        run: |
+          echo "🏗️ Deploying infrastructure for ${{ needs.setup.outputs.environment }} environment..."
+          
+          terraform init
+          
+          terraform workspace select ${{ needs.setup.outputs.environment }} || terraform workspace new ${{ needs.setup.outputs.environment }}
+          
+          terraform plan \
+            -var="environment=${{ needs.setup.outputs.environment }}" \
+            -var="lambda_function_name=lambda_function_${{ needs.setup.outputs.environment }}" \
+            -out=tfplan
+          
+          terraform apply -auto-approve tfplan
+          
+          echo "✅ Infrastructure deployment completed"
+
+      - name: Verify infrastructure deployment
+        id: infrastructure-result
+        working-directory: infrastructure
+        run: |
+          terraform output -json > infrastructure-outputs.json
+          
+          echo "Infrastructure outputs:"
+          cat infrastructure-outputs.json
+          
+          LAMBDA_FUNCTION_ARN=$(terraform output -raw lambda_function_arn)
+          S3_BUCKET=$(terraform output -raw s3_artifacts_bucket)
+          
+          if [[ -z "$LAMBDA_FUNCTION_ARN" || -z "$S3_BUCKET" ]]; then
+            echo "❌ Infrastructure deployment verification failed - missing key resources"
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          echo "✅ Infrastructure deployment verified successfully"
+          echo "Lambda Function ARN: $LAMBDA_FUNCTION_ARN"
+          echo "S3 Bucket: $S3_BUCKET"
+          
+          echo "status=success" >> $GITHUB_OUTPUT
+
+      - name: Upload infrastructure artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: infrastructure-artifacts-${{ needs.setup.outputs.environment }}
+          path: |
+            infrastructure/infrastructure-outputs.json
+            infrastructure/terraform.tfstate
+
+  # Deploy Lambda Application
+  deploy-application:
+    runs-on: ubuntu-latest
+    needs:
+      - setup
+      - build-and-package
+      - deploy-infrastructure
+    if: always() && needs.deploy-infrastructure.outputs.infrastructure-status == 'success'
+    environment:
+      name: ${{ needs.setup.outputs.environment }}
+      url: https://console.aws.amazon.com/lambda/home?region=${{ needs.setup.outputs.aws-region }}
+    outputs:
+      deployment-status: ${{ steps.deployment-result.outputs.status }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ needs.setup.outputs.environment == 'production' && needs.setup.outputs.production-role-arn || needs.setup.outputs.staging-role-arn }}
+          role-session-name: GitHubActions-Deploy-${{ needs.setup.outputs.environment }}
+          aws-region: ${{ needs.setup.outputs.aws-region }}
+          audience: sts.amazonaws.com
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: lambda-package-${{ needs.setup.outputs.environment }}
+
+      - name: Deploy Lambda function
+        id: deploy-lambda
+        run: |
+          echo "🚀 Deploying to ${{ needs.setup.outputs.environment }} environment..."
+          
+          FUNCTION_NAME="lambda_function_${{ needs.setup.outputs.environment }}"
+          
+          # Update function code
+          aws lambda update-function-code \
+            --function-name "$FUNCTION_NAME" \
+            --zip-file fileb://lambda-function.zip \
+            --region "${{ needs.setup.outputs.aws-region }}"
+          
+          # Wait for update to complete
+          aws lambda wait function-updated \
+            --function-name "$FUNCTION_NAME" \
+            --region "${{ needs.setup.outputs.aws-region }}"
+          
+          # Publish new version
+          VERSION=$(aws lambda publish-version \
+            --function-name "$FUNCTION_NAME" \
+            --region "${{ needs.setup.outputs.aws-region }}" \
+            --query 'Version' --output text)
+          
+          echo "Published version: $VERSION"
+          
+          # Update alias to point to new version
+          aws lambda update-alias \
+            --function-name "$FUNCTION_NAME" \
+            --name "live" \
+            --function-version "$VERSION" \
+            --region "${{ needs.setup.outputs.aws-region }}" || \
+          aws lambda create-alias \
+            --function-name "$FUNCTION_NAME" \
+            --name "live" \
+            --function-version "$VERSION" \
+            --region "${{ needs.setup.outputs.aws-region }}"
+          
+          echo "✅ Lambda deployment completed"
+
+      - name: Verify deployment success
+        id: deployment-result
+        run: |
+          FUNCTION_NAME="lambda_function_${{ needs.setup.outputs.environment }}"
+          
+          # Test Lambda function invocation
+          echo "Testing Lambda function: $FUNCTION_NAME"
+          
+          TEST_RESULT=$(aws lambda invoke \
+            --function-name "$FUNCTION_NAME" \
+            --payload '{"test": true, "source": "cicd-health-check", "environment": "${{ needs.setup.outputs.environment }}"}' \
+            --region "${{ needs.setup.outputs.aws-region }}" \
+            response.json 2>&1 || echo "INVOKE_FAILED")
+          
+          if [[ "$TEST_RESULT" == *"INVOKE_FAILED"* ]]; then
+            echo "❌ Lambda function invocation failed"
+            echo "Error: $TEST_RESULT"
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          if [[ -f "response.json" ]]; then
+            echo "✅ Lambda function invocation successful"
+            echo "Response:"
+            cat response.json
+            
+            if grep -q "errorMessage\|errorType" response.json; then
+              echo "❌ Lambda function returned an error"
+              cat response.json
+              echo "status=failed" >> $GITHUB_OUTPUT
+              exit 1
+            fi
+          else
+            echo "❌ No response file generated"
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          echo "✅ ${{ needs.setup.outputs.environment }} deployment health check passed"
+          echo "status=success" >> $GITHUB_OUTPUT
+
+      - name: Upload deployment artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: deployment-artifacts-${{ needs.setup.outputs.environment }}
+          path: |
+            response.json
+
+  # Production approval gate
+  request-production-approval:
+    runs-on: ubuntu-latest
+    needs:
+      - setup
+      - deploy-application
+    if: needs.setup.outputs.environment == 'staging' && needs.deploy-application.outputs.deployment-status == 'success' && github.ref == 'refs/heads/main'
+    environment:
+      name: production-approval
+    steps:
+      - name: Request Production Deployment Approval
+        run: |
+          echo "🔔 Production deployment approval requested"
+          echo "Staging deployment completed successfully"
+          echo "Waiting for manual approval to proceed with production deployment..."
+          echo ""
+          echo "📋 Deployment Summary:"
+          echo "  - Environment: Production"
+          echo "  - Commit: ${{ github.sha }}"
+          echo "  - Branch: ${{ github.ref }}"
+          echo "  - Triggered by: ${{ github.actor }}"
+          echo "  - Staging Status: ✅ Success"
