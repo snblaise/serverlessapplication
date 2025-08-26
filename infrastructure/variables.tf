@@ -50,11 +50,7 @@ variable "lambda_memory_size" {
   }
 }
 
-variable "enable_pipeline" {
-  description = "Enable CodePipeline for CI/CD"
-  type        = bool
-  default     = true
-}
+# Removed enable_pipeline - CodePipeline no longer used
 
 variable "enable_manual_approval" {
   description = "Enable manual approval for production deployments"
@@ -63,7 +59,7 @@ variable "enable_manual_approval" {
 }
 
 variable "notification_email" {
-  description = "Email address for pipeline notifications"
+  description = "Email address for Lambda function notifications"
   type        = string
   default     = ""
 }
