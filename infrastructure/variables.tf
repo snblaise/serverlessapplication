@@ -50,8 +50,6 @@ variable "lambda_memory_size" {
   }
 }
 
-# Removed enable_pipeline - CodePipeline no longer used
-
 variable "enable_manual_approval" {
   description = "Enable manual approval for production deployments"
   type        = bool
