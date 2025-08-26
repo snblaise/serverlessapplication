@@ -124,7 +124,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ needs.setup.outputs.security-scan-role-arn }}
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/GitHubActions-SecurityScan
           role-session-name: GitHubActions-SecurityScan
           aws-region: ${{ needs.setup.outputs.aws-region }}
           audience: sts.amazonaws.com
@@ -210,7 +210,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ needs.setup.outputs.staging-role-arn }}
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/GitHubActions-Lambda-Staging
           role-session-name: GitHubActions-Build
           aws-region: ${{ needs.setup.outputs.aws-region }}
           audience: sts.amazonaws.com
@@ -322,7 +322,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ needs.setup.outputs.staging-role-arn }}
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/GitHubActions-Lambda-Staging
           role-session-name: GitHubActions-Infrastructure-Staging
           aws-region: ${{ needs.setup.outputs.aws-region }}
           audience: sts.amazonaws.com
@@ -431,7 +431,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ needs.setup.outputs.staging-role-arn }}
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/GitHubActions-Lambda-Staging
           role-session-name: GitHubActions-Deploy-Staging
           aws-region: ${{ needs.setup.outputs.aws-region }}
           audience: sts.amazonaws.com
@@ -602,7 +602,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ needs.setup.outputs.production-role-arn }}
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/GitHubActions-Lambda-Production
           role-session-name: GitHubActions-Infrastructure-Production
           aws-region: ${{ needs.setup.outputs.aws-region }}
           audience: sts.amazonaws.com
@@ -712,7 +712,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ needs.setup.outputs.production-role-arn }}
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/GitHubActions-Lambda-Production
           role-session-name: GitHubActions-Deploy-Production
           aws-region: ${{ needs.setup.outputs.aws-region }}
           audience: sts.amazonaws.com
@@ -849,7 +849,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ needs.setup.outputs.staging-role-arn }}
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/GitHubActions-Lambda-Staging
           role-session-name: GitHubActions-Rollback-Staging
           aws-region: ${{ needs.setup.outputs.aws-region }}
           audience: sts.amazonaws.com
@@ -928,7 +928,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ needs.setup.outputs.production-role-arn }}
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/GitHubActions-Lambda-Production
           role-session-name: GitHubActions-Rollback-Production
           aws-region: ${{ needs.setup.outputs.aws-region }}
           audience: sts.amazonaws.com
@@ -1034,7 +1034,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ github.event.inputs.environment == 'production' && needs.setup.outputs.production-role-arn || needs.setup.outputs.staging-role-arn }}
+          role-to-assume: ${{ github.event.inputs.environment == 'production' && format('arn:aws:iam::{0}:role/GitHubActions-Lambda-Production', secrets.AWS_ACCOUNT_ID) || format('arn:aws:iam::{0}:role/GitHubActions-Lambda-Staging', secrets.AWS_ACCOUNT_ID) }}
           role-session-name: GitHubActions-Manual-Rollback
           aws-region: ${{ needs.setup.outputs.aws-region }}
           audience: sts.amazonaws.com
