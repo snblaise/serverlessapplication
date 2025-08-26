@@ -145,7 +145,50 @@ This package supports compliance with:
 
 ## 🚀 Getting Started
 
-### 1. Review Documentation
+### Option A: One-Click Setup (Fastest)
+
+For the fastest deployment experience:
+
+```bash
+# Run the complete setup and deployment
+./scripts/quick-start.sh
+```
+
+This will automatically:
+- ✅ Install dependencies
+- ✅ Configure GitHub secrets
+- ✅ Trigger the deployment pipeline
+- ✅ Provide monitoring commands
+
+### Option B: Step-by-Step Automated Setup
+
+For more control over the process:
+
+```bash
+# 1. Set up GitHub secrets automatically
+./scripts/setup-github-secrets.sh
+
+# 2. Trigger the complete deployment pipeline
+gh workflow run "Lambda CI/CD Pipeline" --field environment=staging
+
+# 3. Monitor deployment progress
+gh run list --workflow="lambda-cicd.yml"
+```
+
+This automated approach will:
+- ✅ Create OIDC roles and infrastructure automatically
+- ✅ Deploy all AWS resources using Terraform
+- ✅ Build and deploy the Lambda function with security scanning
+- ✅ Set up monitoring, alerting, and compliance controls
+- ✅ Provide complete audit trail and evidence collection
+
+For detailed setup instructions, see [GitHub Actions Setup Guide](docs/GITHUB_ACTIONS_SETUP.md).
+
+### Option B: Manual Implementation
+
+For step-by-step manual implementation:
+
+#### 1. Review Documentation
 ```bash
 # Start with executive summary
 open docs/EXECUTIVE_SUMMARY.md
@@ -154,7 +197,7 @@ open docs/EXECUTIVE_SUMMARY.md
 open docs/IMPLEMENTATION_GUIDE.md
 ```
 
-### 2. Deploy Policy Guardrails
+#### 2. Deploy Policy Guardrails
 ```bash
 # Deploy Service Control Policies
 aws organizations attach-policy --policy-id <policy-id> --target-id <ou-id>
@@ -163,7 +206,7 @@ aws organizations attach-policy --policy-id <policy-id> --target-id <ou-id>
 aws configservice put-conformance-pack --conformance-pack-name "LambdaProductionReadiness"
 ```
 
-### 3. Set up CI/CD Pipeline
+#### 3. Set up CI/CD Pipeline
 ```bash
 # Configure GitHub OIDC
 aws iam create-open-id-connect-provider --url https://token.actions.githubusercontent.com
@@ -172,7 +215,7 @@ aws iam create-open-id-connect-provider --url https://token.actions.githubuserco
 cp .github/workflows/lambda-deploy.yml.example .github/workflows/lambda-deploy.yml
 ```
 
-### 4. Validate Implementation
+#### 4. Validate Implementation
 ```bash
 # Run production readiness validation
 python3 scripts/validate-production-readiness.py

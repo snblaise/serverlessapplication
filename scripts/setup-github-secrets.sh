@@ -1,9 +1,16 @@
 #!/bin/bash
 
 # GitHub Secrets Setup Script
-# This script helps you set up the required GitHub secrets for OIDC authentication
+# This script helps you set up the required GitHub repository secrets for the CI/CD pipeline
 
 set -e
+
+echo "🔑 GitHub Secrets Setup for Lambda CI/CD Pipeline"
+echo "================================================="
+echo ""
+echo "This script will help you configure the required GitHub repository secrets"
+echo "for the AWS Lambda CI/CD pipeline to work properly."
+echo ""
 
 # Colors for output
 RED='\033[0;31m'
@@ -12,146 +19,155 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Function to print status
-print_status() {
-    local status=$1
-    local message=$2
-    if [[ "$status" == "OK" ]]; then
-        echo -e "${GREEN}✅ $message${NC}"
-    elif [[ "$status" == "WARNING" ]]; then
-        echo -e "${YELLOW}⚠️  $message${NC}"
-    elif [[ "$status" == "ERROR" ]]; then
-        echo -e "${RED}❌ $message${NC}"
-    else
-        echo -e "${BLUE}ℹ️  $message${NC}"
-    fi
-}
-
-echo "🔐 GitHub Secrets Setup for OIDC Authentication"
-echo "================================================"
-
-# Get repository info
-REPO_OWNER=${1:-"snblaise"}
-REPO_NAME=${2:-"serverlessapplication"}
-REPO_FULL_NAME="$REPO_OWNER/$REPO_NAME"
-
-print_status "INFO" "Setting up secrets for repository: $REPO_FULL_NAME"
-echo ""
-
 # Check if GitHub CLI is installed
 if ! command -v gh &> /dev/null; then
-    print_status "ERROR" "GitHub CLI (gh) is not installed"
-    echo "   Install it from: https://cli.github.com/"
+    echo -e "${RED}❌ GitHub CLI (gh) is not installed.${NC}"
+    echo "Please install it from: https://cli.github.com/"
+    echo ""
+    echo "On macOS: brew install gh"
+    echo "On Ubuntu: sudo apt install gh"
     exit 1
 fi
 
-# Check if user is authenticated
+# Check if user is authenticated with GitHub CLI
 if ! gh auth status &> /dev/null; then
-    print_status "ERROR" "Not authenticated with GitHub CLI"
-    echo "   Run: gh auth login"
+    echo -e "${YELLOW}⚠️  You are not authenticated with GitHub CLI.${NC}"
+    echo "Please run: gh auth login"
     exit 1
 fi
 
-# Get AWS Account ID
-print_status "INFO" "Getting AWS Account ID..."
-AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text 2>/dev/null || echo "")
+echo -e "${GREEN}✅ GitHub CLI is installed and authenticated${NC}"
 
-if [[ -z "$AWS_ACCOUNT_ID" ]]; then
-    print_status "ERROR" "Could not get AWS Account ID. Make sure AWS CLI is configured."
+# Check if AWS CLI is installed and configured
+if ! command -v aws &> /dev/null; then
+    echo -e "${RED}❌ AWS CLI is not installed.${NC}"
+    echo "Please install it from: https://aws.amazon.com/cli/"
     exit 1
 fi
 
-print_status "OK" "AWS Account ID: $AWS_ACCOUNT_ID"
+# Check if AWS credentials are configured
+if ! aws sts get-caller-identity &> /dev/null; then
+    echo -e "${RED}❌ AWS credentials are not configured.${NC}"
+    echo "Please run: aws configure"
+    echo "Or set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables"
+    exit 1
+fi
 
-# Default role names
-STAGING_ROLE_NAME="GitHubActions-Lambda-Staging"
-PROD_ROLE_NAME="GitHubActions-Lambda-Production"
+echo -e "${GREEN}✅ AWS CLI is installed and configured${NC}"
+
+# Get AWS account information
+AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+AWS_USER_ARN=$(aws sts get-caller-identity --query Arn --output text)
+AWS_REGION=$(aws configure get region || echo "us-east-1")
 
 echo ""
-print_status "INFO" "Setting up GitHub secrets..."
-
-# Set AWS Account ID secrets
-echo "Setting AWS_ACCOUNT_ID_STAGING..."
-if gh secret set AWS_ACCOUNT_ID_STAGING --body "$AWS_ACCOUNT_ID" --repo "$REPO_FULL_NAME"; then
-    print_status "OK" "AWS_ACCOUNT_ID_STAGING set successfully"
-else
-    print_status "ERROR" "Failed to set AWS_ACCOUNT_ID_STAGING"
-fi
-
-echo "Setting AWS_ACCOUNT_ID_PROD..."
-if gh secret set AWS_ACCOUNT_ID_PROD --body "$AWS_ACCOUNT_ID" --repo "$REPO_FULL_NAME"; then
-    print_status "OK" "AWS_ACCOUNT_ID_PROD set successfully"
-else
-    print_status "ERROR" "Failed to set AWS_ACCOUNT_ID_PROD"
-fi
-
-# Set role name secrets
-echo "Setting AWS_ROLE_NAME_STAGING..."
-if gh secret set AWS_ROLE_NAME_STAGING --body "$STAGING_ROLE_NAME" --repo "$REPO_FULL_NAME"; then
-    print_status "OK" "AWS_ROLE_NAME_STAGING set successfully"
-else
-    print_status "ERROR" "Failed to set AWS_ROLE_NAME_STAGING"
-fi
-
-echo "Setting AWS_ROLE_NAME_PROD..."
-if gh secret set AWS_ROLE_NAME_PROD --body "$PROD_ROLE_NAME" --repo "$REPO_FULL_NAME"; then
-    print_status "OK" "AWS_ROLE_NAME_PROD set successfully"
-else
-    print_status "ERROR" "Failed to set AWS_ROLE_NAME_PROD"
-fi
-
+echo -e "${BLUE}📋 Current AWS Configuration:${NC}"
+echo "  Account ID: ${AWS_ACCOUNT_ID}"
+echo "  User/Role: ${AWS_USER_ARN}"
+echo "  Region: ${AWS_REGION}"
 echo ""
-print_status "INFO" "Verifying secrets..."
 
-# List secrets to verify
-SECRETS=$(gh secret list --repo "$REPO_FULL_NAME" --json name --jq '.[].name' 2>/dev/null || echo "")
+# Get repository information
+REPO_INFO=$(gh repo view --json owner,name)
+REPO_OWNER=$(echo "$REPO_INFO" | jq -r '.owner.login')
+REPO_NAME=$(echo "$REPO_INFO" | jq -r '.name')
+REPO_FULL_NAME="${REPO_OWNER}/${REPO_NAME}"
 
-if echo "$SECRETS" | grep -q "AWS_ACCOUNT_ID_STAGING"; then
-    print_status "OK" "AWS_ACCOUNT_ID_STAGING verified"
-else
-    print_status "WARNING" "AWS_ACCOUNT_ID_STAGING not found"
+echo -e "${BLUE}📋 Current Repository:${NC}"
+echo "  Repository: ${REPO_FULL_NAME}"
+echo ""
+
+# Get AWS credentials
+AWS_ACCESS_KEY_ID=$(aws configure get aws_access_key_id)
+AWS_SECRET_ACCESS_KEY=$(aws configure get aws_secret_access_key)
+
+if [[ -z "$AWS_ACCESS_KEY_ID" || -z "$AWS_SECRET_ACCESS_KEY" ]]; then
+    echo -e "${RED}❌ Could not retrieve AWS credentials from AWS CLI configuration.${NC}"
+    echo "Please ensure your AWS credentials are properly configured with 'aws configure'"
+    exit 1
 fi
 
-if echo "$SECRETS" | grep -q "AWS_ACCOUNT_ID_PROD"; then
-    print_status "OK" "AWS_ACCOUNT_ID_PROD verified"
-else
-    print_status "WARNING" "AWS_ACCOUNT_ID_PROD not found"
-fi
+echo -e "${YELLOW}🔍 Found AWS Credentials:${NC}"
+echo "  Access Key ID: ${AWS_ACCESS_KEY_ID:0:10}...${AWS_ACCESS_KEY_ID: -4}"
+echo "  Secret Key: ${AWS_SECRET_ACCESS_KEY:0:6}...${AWS_SECRET_ACCESS_KEY: -4}"
+echo ""
 
-if echo "$SECRETS" | grep -q "AWS_ROLE_NAME_STAGING"; then
-    print_status "OK" "AWS_ROLE_NAME_STAGING verified"
-else
-    print_status "WARNING" "AWS_ROLE_NAME_STAGING not found"
-fi
-
-if echo "$SECRETS" | grep -q "AWS_ROLE_NAME_PROD"; then
-    print_status "OK" "AWS_ROLE_NAME_PROD verified"
-else
-    print_status "WARNING" "AWS_ROLE_NAME_PROD not found"
+# Confirm before proceeding
+echo -e "${YELLOW}⚠️  This script will add the following secrets to your GitHub repository:${NC}"
+echo "  - AWS_ACCESS_KEY_ID"
+echo "  - AWS_SECRET_ACCESS_KEY"
+echo ""
+read -p "Do you want to proceed? (y/N): " -n 1 -r
+echo
+if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    echo -e "${YELLOW}❌ Setup cancelled by user${NC}"
+    exit 1
 fi
 
 echo ""
-print_status "INFO" "GitHub Secrets Summary:"
-echo "   Repository: $REPO_FULL_NAME"
-echo "   AWS Account ID: $AWS_ACCOUNT_ID"
-echo "   Staging Role: $STAGING_ROLE_NAME"
-echo "   Production Role: $PROD_ROLE_NAME"
+echo -e "${BLUE}🚀 Setting up GitHub repository secrets...${NC}"
+
+# Set GitHub secrets
+echo "Setting AWS_ACCESS_KEY_ID..."
+if gh secret set AWS_ACCESS_KEY_ID --body "$AWS_ACCESS_KEY_ID" --repo "$REPO_FULL_NAME"; then
+    echo -e "${GREEN}✅ AWS_ACCESS_KEY_ID secret set successfully${NC}"
+else
+    echo -e "${RED}❌ Failed to set AWS_ACCESS_KEY_ID secret${NC}"
+    exit 1
+fi
+
+echo "Setting AWS_SECRET_ACCESS_KEY..."
+if gh secret set AWS_SECRET_ACCESS_KEY --body "$AWS_SECRET_ACCESS_KEY" --repo "$REPO_FULL_NAME"; then
+    echo -e "${GREEN}✅ AWS_SECRET_ACCESS_KEY secret set successfully${NC}"
+else
+    echo -e "${RED}❌ Failed to set AWS_SECRET_ACCESS_KEY secret${NC}"
+    exit 1
+fi
+
+# Optional: Set AWS account ID secrets
+echo ""
+read -p "Do you want to set optional AWS_ACCOUNT_ID secrets? (y/N): " -n 1 -r
+echo
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    echo "Setting AWS_ACCOUNT_ID_STAGING..."
+    gh secret set AWS_ACCOUNT_ID_STAGING --body "$AWS_ACCOUNT_ID" --repo "$REPO_FULL_NAME"
+    
+    echo "Setting AWS_ACCOUNT_ID_PROD..."
+    gh secret set AWS_ACCOUNT_ID_PROD --body "$AWS_ACCOUNT_ID" --repo "$REPO_FULL_NAME"
+    
+    echo -e "${GREEN}✅ Optional AWS account ID secrets set${NC}"
+fi
 
 echo ""
-print_status "INFO" "Expected Role ARNs in workflows:"
-echo "   Staging: arn:aws:iam::$AWS_ACCOUNT_ID:role/$STAGING_ROLE_NAME"
-echo "   Production: arn:aws:iam::$AWS_ACCOUNT_ID:role/$PROD_ROLE_NAME"
+echo -e "${GREEN}🎉 GitHub Secrets Setup Complete!${NC}"
+echo ""
+echo -e "${BLUE}📋 Summary of configured secrets:${NC}"
+
+# List the secrets we just set
+gh secret list --repo "$REPO_FULL_NAME" | grep -E "(AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AWS_ACCOUNT_ID)" || echo "  (Unable to list secrets - but they should be set)"
 
 echo ""
-print_status "OK" "GitHub secrets setup complete!"
-print_status "INFO" "You can now run your GitHub Actions workflows with OIDC authentication."
-
-# Optional: Show how to manually set secrets
+echo -e "${BLUE}🚀 Next Steps:${NC}"
+echo "1. The GitHub Actions workflow is now ready to run"
+echo "2. Trigger the workflow manually:"
+echo "   ${YELLOW}gh workflow run \"Lambda CI/CD Pipeline\" --field environment=staging${NC}"
 echo ""
-echo "📝 Manual Secret Setup (if script fails):"
-echo "   Go to: https://github.com/$REPO_FULL_NAME/settings/secrets/actions"
-echo "   Add these secrets:"
-echo "   - AWS_ACCOUNT_ID_STAGING = $AWS_ACCOUNT_ID"
-echo "   - AWS_ACCOUNT_ID_PROD = $AWS_ACCOUNT_ID"
-echo "   - AWS_ROLE_NAME_STAGING = $STAGING_ROLE_NAME"
-echo "   - AWS_ROLE_NAME_PROD = $PROD_ROLE_NAME"
+echo "3. Or push a commit to trigger it automatically:"
+echo "   ${YELLOW}git commit --allow-empty -m \"trigger workflow\"${NC}"
+echo "   ${YELLOW}git push origin main${NC}"
+echo ""
+echo -e "${BLUE}📖 What happens next:${NC}"
+echo "  ✅ Bootstrap step will create OIDC roles using your AWS credentials"
+echo "  ✅ All subsequent steps will use secure OIDC authentication"
+echo "  ✅ Complete infrastructure will be deployed automatically"
+echo "  ✅ Lambda function will be built and deployed"
+echo ""
+echo -e "${GREEN}🔒 Security Note:${NC}"
+echo "Your AWS access keys are only used for the initial bootstrap step."
+echo "After that, the workflow uses secure OIDC authentication with temporary credentials."
+echo ""
+echo -e "${BLUE}📚 For more information, see:${NC}"
+echo "  - docs/GITHUB_ACTIONS_SETUP.md"
+echo "  - docs/CICD_PIPELINE.md"
+echo ""
+echo -e "${GREEN}✨ Setup complete! Your CI/CD pipeline is ready to go!${NC}"

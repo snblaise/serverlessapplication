@@ -22,12 +22,38 @@ These are used only for the initial bootstrap step to create OIDC roles:
 - `AWS_ACCOUNT_ID_STAGING` - AWS Account ID for staging (optional)
 - `AWS_ACCOUNT_ID_PROD` - AWS Account ID for production (optional)
 
-## How to Add Secrets
+## Quick Setup (Recommended)
+
+Use the automated setup script to configure all secrets:
+
+```bash
+# Run the setup script
+./scripts/setup-github-secrets.sh
+```
+
+This script will:
+- ✅ Check if GitHub CLI and AWS CLI are installed and configured
+- ✅ Automatically retrieve your AWS credentials
+- ✅ Set up all required GitHub repository secrets
+- ✅ Provide next steps and verification
+
+## Manual Setup
+
+If you prefer to add secrets manually:
 
 1. Go to your GitHub repository
 2. Navigate to **Settings** → **Secrets and variables** → **Actions**
 3. Click **New repository secret**
 4. Add each secret with the exact name and value
+
+Get your AWS credentials:
+```bash
+# Get your access key ID
+aws configure get aws_access_key_id
+
+# Get your secret access key  
+aws configure get aws_secret_access_key
+```
 
 ## Workflow Process
 
