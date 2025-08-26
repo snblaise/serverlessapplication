@@ -337,7 +337,7 @@ jobs:
           # Plan infrastructure deployment
           terraform plan \
             -var="environment=staging" \
-            -var="lambda_function_name=lambda-function-staging" \
+            -var="lambda_function_name=lambda_function_staging" \
             -out=tfplan
           
           # Apply infrastructure changes
@@ -435,7 +435,7 @@ jobs:
 
           # Deploy using canary script
           ./scripts/deploy-lambda-canary.sh \
-            --function "lambda-function-staging" \
+            --function "lambda_function_staging" \
             --environment "staging" \
             --package "$PACKAGE_FILE" \
             --config "CodeDeployDefault.Lambda10PercentEvery5Minutes" \
@@ -475,7 +475,7 @@ jobs:
           sleep 30
           
           # Test Lambda function invocation
-          FUNCTION_NAME="lambda-function-staging"
+          FUNCTION_NAME="lambda_function_staging"
           
           echo "Testing Lambda function: $FUNCTION_NAME"
           
@@ -617,7 +617,7 @@ jobs:
           # Plan infrastructure deployment
           terraform plan \
             -var="environment=production" \
-            -var="lambda_function_name=lambda-function-production" \
+            -var="lambda_function_name=lambda_function_production" \
             -out=tfplan
           
           # Apply infrastructure changes
@@ -716,7 +716,7 @@ jobs:
 
           # Deploy using canary script
           ./scripts/deploy-lambda-canary.sh \
-            --function "lambda-function-production" \
+            --function "lambda_function_production" \
             --environment "production" \
             --package "$PACKAGE_FILE" \
             --config "CodeDeployDefault.Lambda10PercentEvery5Minutes" \
@@ -756,7 +756,7 @@ jobs:
           sleep 30
           
           # Test Lambda function invocation
-          FUNCTION_NAME="lambda-function-production"
+          FUNCTION_NAME="lambda_function_production"
           
           echo "Testing Lambda function: $FUNCTION_NAME"
           
@@ -835,7 +835,7 @@ jobs:
           chmod +x scripts/rollback-lambda-deployment.sh
 
           ./scripts/rollback-lambda-deployment.sh \
-            --function "lambda-function-staging" \
+            --function "lambda_function_staging" \
             --environment "staging" \
             --mode "emergency" \
             --region "${{ needs.setup.outputs.aws-region }}" \
@@ -848,7 +848,7 @@ jobs:
           echo "🔍 Verifying staging rollback was successful..."
           
           # Test the rolled-back function
-          FUNCTION_NAME="lambda-function-staging"
+          FUNCTION_NAME="lambda_function_staging"
           
           # Wait for rollback to stabilize
           sleep 30
@@ -914,7 +914,7 @@ jobs:
           chmod +x scripts/rollback-lambda-deployment.sh
 
           ./scripts/rollback-lambda-deployment.sh \
-            --function "lambda-function-production" \
+            --function "lambda_function_production" \
             --environment "production" \
             --mode "emergency" \
             --region "${{ needs.setup.outputs.aws-region }}" \
@@ -927,7 +927,7 @@ jobs:
           echo "🔍 Verifying production rollback was successful..."
           
           # Test the rolled-back function
-          FUNCTION_NAME="lambda-function-production"
+          FUNCTION_NAME="lambda_function_production"
           
           # Wait for rollback to stabilize
           sleep 30
@@ -958,7 +958,7 @@ jobs:
         run: |
           echo "📢 CRITICAL: Production rollback notification"
           echo "Environment: production"
-          echo "Function: lambda-function-production"
+          echo "Function: lambda_function_production"
           echo "Rollback Status: ${{ job.status }}"
           echo "Triggered by: Production deployment failure"
           echo "Commit: ${{ github.sha }}"

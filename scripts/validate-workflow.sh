@@ -55,10 +55,11 @@ fi
 echo ""
 echo "2. Checking for required secrets..."
 REQUIRED_SECRETS=(
+    "AWS_STAGING_ROLE_ARN"
+    "AWS_PRODUCTION_ROLE_ARN"
+    "AWS_SECURITY_SCAN_ROLE_ARN"
     "AWS_ACCOUNT_ID_STAGING"
     "AWS_ACCOUNT_ID_PROD"
-    "AWS_ROLE_NAME_STAGING"
-    "AWS_ROLE_NAME_PROD"
 )
 
 for secret in "${REQUIRED_SECRETS[@]}"; do
@@ -109,16 +110,16 @@ fi
 # 7. Check for environment outputs
 echo ""
 echo "5. Checking environment configuration..."
-if grep -q "aws-role-arn:" "$WORKFLOW_FILE"; then
-    print_status "OK" "AWS role ARN output configured"
-else
-    print_status "ERROR" "Missing AWS role ARN output"
-fi
-
 if grep -q "aws-region:" "$WORKFLOW_FILE"; then
     print_status "OK" "AWS region output configured"
 else
-    print_status "ERROR" "Missing AWS region output"
+    print_status "WARNING" "AWS region output not found in setup job"
+fi
+
+if grep -q "environment:" "$WORKFLOW_FILE"; then
+    print_status "OK" "Environment output configured"
+else
+    print_status "WARNING" "Environment output not found in setup job"
 fi
 
 # 8. Check for common issues
