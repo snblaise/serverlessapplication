@@ -82,7 +82,7 @@ resource "aws_codedeploy_deployment_group" "lambda_deployment_group" {
 
 # S3 bucket for deployment artifacts with static unique name
 resource "aws_s3_bucket" "lambda_artifacts" {
-  bucket        = "lambda-artifacts-${var.environment}-snblaise-2025"
+  bucket        = "lambda-artifacts-${var.environment}-snblaise-serverless-2025"
   force_destroy = var.environment != "production"
   
   tags = {
