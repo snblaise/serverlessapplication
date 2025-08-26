@@ -129,6 +129,10 @@ deploy_bootstrap() {
 display_role_arns() {
     print_status "Retrieving role ARNs..."
     
+    # Change to bootstrap directory (we should already be in root)
+    if [[ ! -d "infrastructure/bootstrap" ]]; then
+        cd ../..
+    fi
     cd infrastructure/bootstrap
     
     STAGING_ROLE_ARN=$(terraform output -raw github_actions_staging_role_arn 2>/dev/null || echo "Not found")
