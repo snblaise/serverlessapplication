@@ -145,33 +145,9 @@ This package supports compliance with:
 
 ## 🚀 Getting Started
 
-### Option A: Production-Ready Deployment (Recommended)
+### Option A: One-Click Setup (Fastest)
 
-For secure, production-ready deployment following AWS best practices:
-
-```bash
-# 1. Set up secure OIDC authentication (no long-lived keys)
-./scripts/setup-production-oidc.sh
-
-# 2. Deploy using production-ready workflow
-gh workflow run "Lambda CI/CD Pipeline (Production Ready)" --field environment=staging
-
-# 3. Monitor deployment
-gh run list --workflow="lambda-cicd-production.yml"
-```
-
-**Security Benefits:**
-- ✅ No long-lived access keys
-- ✅ Temporary credentials only  
-- ✅ Repository-scoped access
-- ✅ Environment-specific roles
-- ✅ Complete audit trail
-
-See [Production Deployment Guide](docs/PRODUCTION_DEPLOYMENT_GUIDE.md) for detailed instructions.
-
-### Option B: Quick Setup (Development)
-
-For development and testing (uses access keys):
+For the fastest deployment experience:
 
 ```bash
 # Run the complete setup and deployment
@@ -183,6 +159,21 @@ This will automatically:
 - ✅ Configure GitHub secrets
 - ✅ Trigger the deployment pipeline
 - ✅ Provide monitoring commands
+
+### Option B: Step-by-Step Automated Setup
+
+For more control over the process:
+
+```bash
+# 1. Set up GitHub secrets automatically
+./scripts/setup-github-secrets.sh
+
+# 2. Trigger the complete deployment pipeline
+gh workflow run "Lambda CI/CD Pipeline" --field environment=staging
+
+# 3. Monitor deployment progress
+gh run list --workflow="lambda-cicd.yml"
+```
 
 This automated approach will:
 - ✅ Create OIDC roles and infrastructure automatically
