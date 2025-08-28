@@ -128,6 +128,13 @@ jobs:
           echo "Security scan role ARN: ${{ needs.setup.outputs.security-scan-role-arn }}"
           echo "AWS region: ${{ needs.setup.outputs.aws-region }}"
 
+      - name: Debug role information
+        run: |
+          echo "Security Scan Role ARN: ${{ needs.setup.outputs.security-scan-role-arn }}"
+          echo "AWS Region: ${{ needs.setup.outputs.aws-region }}"
+          echo "GitHub Repository: ${{ github.repository }}"
+          echo "GitHub Ref: ${{ github.ref }}"
+
       - name: Configure AWS credentials for security scanning
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -174,18 +181,25 @@ jobs:
           echo "2. Get your API token from https://app.snyk.io/account"
           echo "3. Add it as SNYK_TOKEN secret in GitHub repository settings"
 
-      - name: Validate CloudFormation template
+      - name: Install CloudFormation tools
         run: |
-          aws cloudformation validate-template \
-            --template-body file://cloudformation/lambda-infrastructure.yml
+          # Install cfn-lint for template analysis
+          pip install cfn-lint
 
       - name: Run CloudFormation security analysis
         run: |
-          # Install cfn-lint
-          pip install cfn-lint
-          
-          # Lint CloudFormation template
+          # Lint CloudFormation template (this doesn't require AWS credentials)
           cfn-lint cloudformation/lambda-infrastructure.yml
+          
+          echo "✅ CloudFormation template passed security analysis"
+
+      - name: Validate CloudFormation template (with AWS credentials)
+        run: |
+          # This step requires AWS credentials, so we'll validate the template
+          aws cloudformation validate-template \
+            --template-body file://cloudformation/lambda-infrastructure.yml
+          
+          echo "✅ CloudFormation template validation passed"
 
   build-and-package:
     name: Build and Package Lambda
