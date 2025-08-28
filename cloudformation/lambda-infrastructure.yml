@@ -316,25 +316,8 @@ Resources:
         - Key: ManagedBy
           Value: cloudformation
 
-  # GitHub OIDC Provider (only create if it doesn't exist)
-  GitHubOIDCProvider:
-    Type: AWS::IAM::OIDCProvider
-    Properties:
-      Url: https://token.actions.githubusercontent.com
-      ClientIdList:
-        - sts.amazonaws.com
-      ThumbprintList:
-        - 6938fd4d98bab03faadb97b34396831e3780aea1
-        - 1c58a3a8518e8759bf075b76b750d4f2df264fcd
-      Tags:
-        - Key: Name
-          Value: GitHub Actions OIDC Provider
-        - Key: Environment
-          Value: bootstrap
-        - Key: Project
-          Value: lambda-production-readiness
-        - Key: ManagedBy
-          Value: cloudformation
+  # Use existing GitHub OIDC Provider
+  # Note: We reference the existing OIDC provider instead of creating a new one
 
   # GitHub Actions IAM Role for Staging
   GitHubActionsStagingRole:
@@ -347,7 +330,7 @@ Resources:
         Statement:
           - Effect: Allow
             Principal:
-              Federated: !Ref GitHubOIDCProvider
+              Federated: !Sub 'arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com'
             Action: sts:AssumeRoleWithWebIdentity
             Condition:
               StringEquals:
@@ -420,7 +403,7 @@ Resources:
         Statement:
           - Effect: Allow
             Principal:
-              Federated: !Ref GitHubOIDCProvider
+              Federated: !Sub 'arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com'
             Action: sts:AssumeRoleWithWebIdentity
             Condition:
               StringEquals:
@@ -492,7 +475,7 @@ Resources:
         Statement:
           - Effect: Allow
             Principal:
-              Federated: !Ref GitHubOIDCProvider
+              Federated: !Sub 'arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com'
             Action: sts:AssumeRoleWithWebIdentity
             Condition:
               StringEquals:
@@ -575,7 +558,7 @@ Outputs:
 
   GitHubOIDCProviderArn:
     Description: GitHub OIDC Provider ARN
-    Value: !Ref GitHubOIDCProvider
+    Value: !Sub 'arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com'
     Export:
       Name: !Sub '${AWS::StackName}-GitHubOIDCProviderArn'
 

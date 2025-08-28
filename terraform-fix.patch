@@ -1,0 +1,68 @@
+## Key Issues in Your Terraform Deployment:
+
+### 1. **Resource Conflicts** - No import of existing resources
+### 2. **Force Replace** - Using `-replace` flag causes unnecessary recreation  
+### 3. **No Rollback** - Terraform failures leave orphaned resources
+### 4. **Inconsistent Naming** - Mix of `lambda_function_` and `lambda-function-`
+
+## Quick Fixes:
+
+### Fix 1: Add Resource Import (Line 350-370)
+```yaml
+# Add before terraform plan:
+echo "🔍 Importing existing resources..."
+BUCKET_NAME="lambda-artifacts-staging-${{ secrets.AWS_ACCOUNT_ID }}"
+if aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
+  terraform import aws_s3_bucket.lambda_artifacts "$BUCKET_NAME" || true
+fi
+
+FUNCTION_NAME="lambda-function-staging"  
+if aws lambda get-function --function-name "$FUNCTION_NAME" 2>/dev/null; then
+  terraform import module.lambda_function.aws_lambda_function.this "$FUNCTION_NAME" || true
+fi
+```
+
+### Fix 2: Remove `-replace` Flag (Line 375)
+```yaml
+# Change from:
+terraform apply -replace -auto-approve tfplan
+
+# To:
+terraform apply -auto-approve tfplan
+```
+
+### Fix 3: Add Rollback on Failure (Line 375-385)
+```yaml
+if ! terraform apply -auto-approve tfplan; then
+  echo "❌ Terraform failed, rolling back..."
+  terraform destroy -auto-approve \
+    -var="environment=staging" \
+    -var="lambda_function_name=lambda-function-staging" || true
+  exit 1
+fi
+```
+
+### Fix 4: Fix Function Names (Lines 420, 450, 480)
+```yaml
+# Change all instances from:
+lambda_function_staging
+
+# To:
+lambda-function-staging
+```
+
+## Manual Cleanup Command:
+```bash
+# Run this to clean up existing resources:
+./scripts/terraform-rollback.sh staging --force
+```
+
+## Test the Fix:
+```bash
+# 1. Clean up first
+aws s3 rm s3://lambda-artifacts-staging-948572562675 --recursive
+aws s3api delete-bucket --bucket lambda-artifacts-staging-948572562675
+
+# 2. Run deployment
+gh workflow run "Lambda CI/CD Pipeline" --field environment=staging
+```

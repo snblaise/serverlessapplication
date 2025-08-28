@@ -1,0 +1,80 @@
+[
+    {
+        "OutputKey": "AWSAccountId",
+        "OutputValue": "948572562675",
+        "Description": "AWS Account ID",
+        "ExportName": "lambda-infrastructure-staging-AWSAccountId"
+    },
+    {
+        "OutputKey": "LambdaAliasArn",
+        "OutputValue": "arn:aws:lambda:us-east-1:948572562675:function:lambda-function-staging:live",
+        "Description": "ARN of the Lambda alias",
+        "ExportName": "lambda-infrastructure-staging-LambdaAliasArn"
+    },
+    {
+        "OutputKey": "GitHubActionsStagingRoleArn",
+        "OutputValue": "arn:aws:iam::948572562675:role/GitHubActions-Lambda-Staging",
+        "Description": "GitHub Actions Staging Role ARN",
+        "ExportName": "lambda-infrastructure-staging-GitHubActionsStagingRoleArn"
+    },
+    {
+        "OutputKey": "AWSRegion",
+        "OutputValue": "us-east-1",
+        "Description": "AWS Region",
+        "ExportName": "lambda-infrastructure-staging-AWSRegion"
+    },
+    {
+        "OutputKey": "LambdaFunctionName",
+        "OutputValue": "lambda-function-staging",
+        "Description": "Name of the Lambda function",
+        "ExportName": "lambda-infrastructure-staging-LambdaFunctionName"
+    },
+    {
+        "OutputKey": "GitHubOIDCProviderArn",
+        "OutputValue": "arn:aws:iam::948572562675:oidc-provider/token.actions.githubusercontent.com",
+        "Description": "GitHub OIDC Provider ARN",
+        "ExportName": "lambda-infrastructure-staging-GitHubOIDCProviderArn"
+    },
+    {
+        "OutputKey": "CodeDeployApplicationName",
+        "OutputValue": "lambda-app-staging",
+        "Description": "CodeDeploy application name",
+        "ExportName": "lambda-infrastructure-staging-CodeDeployApplicationName"
+    },
+    {
+        "OutputKey": "GitHubActionsSecurityScanRoleArn",
+        "OutputValue": "arn:aws:iam::948572562675:role/GitHubActions-SecurityScan",
+        "Description": "GitHub Actions Security Scan Role ARN",
+        "ExportName": "lambda-infrastructure-staging-GitHubActionsSecurityScanRoleArn"
+    },
+    {
+        "OutputKey": "LambdaFunctionArn",
+        "OutputValue": "arn:aws:lambda:us-east-1:948572562675:function:lambda-function-staging",
+        "Description": "ARN of the Lambda function",
+        "ExportName": "lambda-infrastructure-staging-LambdaFunctionArn"
+    },
+    {
+        "OutputKey": "CloudWatchAlarms",
+        "OutputValue": "Error Rate: lambda-error-rate-staging\nDuration: lambda-duration-staging\nThrottle: lambda-throttle-staging\n",
+        "Description": "CloudWatch alarm names",
+        "ExportName": "lambda-infrastructure-staging-CloudWatchAlarms"
+    },
+    {
+        "OutputKey": "Environment",
+        "OutputValue": "staging",
+        "Description": "Environment name",
+        "ExportName": "lambda-infrastructure-staging-Environment"
+    },
+    {
+        "OutputKey": "CodeDeployDeploymentGroupName",
+        "OutputValue": "lambda-deployment-group",
+        "Description": "CodeDeploy deployment group name",
+        "ExportName": "lambda-infrastructure-staging-CodeDeployDeploymentGroupName"
+    },
+    {
+        "OutputKey": "S3ArtifactsBucket",
+        "OutputValue": "lambda-artifacts-staging-948572562675",
+        "Description": "S3 bucket for Lambda artifacts",
+        "ExportName": "lambda-infrastructure-staging-S3ArtifactsBucket"
+    }
+]
