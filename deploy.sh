@@ -1,41 +1,49 @@
 #!/bin/bash
 
-# Quick GitHub Actions Deployment Script
-# This script helps you deploy the GitHub Actions workflow quickly
-
+# Simple deployment script for Lambda infrastructure
 set -e
 
-echo "🚀 GitHub Actions Lambda CI/CD Deployment"
-echo "=========================================="
-echo ""
+ENVIRONMENT=${1:-staging}
+STACK_NAME="lambda-infrastructure-${ENVIRONMENT}"
+AWS_REGION="us-east-1"
 
-# Check if we're in the right directory
-if [[ ! -f "package.json" ]] || [[ ! -f ".github/workflows/lambda-cicd.yml" ]]; then
-    echo "❌ Error: This script must be run from the project root directory"
-    echo "   Make sure you have package.json and .github/workflows/lambda-cicd.yml"
+echo "🚀 Deploying Lambda Infrastructure"
+echo "Environment: ${ENVIRONMENT}"
+echo "Stack Name: ${STACK_NAME}"
+echo "AWS Region: ${AWS_REGION}"
+
+# Check AWS CLI configuration
+if ! aws sts get-caller-identity &> /dev/null; then
+    echo "❌ AWS CLI is not configured. Please run 'aws configure' first."
     exit 1
 fi
 
-# Run the deployment helper script
-if [[ -f "scripts/deploy-github-actions.sh" ]]; then
-    echo "📋 Running deployment preparation..."
-    ./scripts/deploy-github-actions.sh
+# Validate template
+echo "🔍 Validating CloudFormation template..."
+aws cloudformation validate-template --template-body file://cloudformation/lambda-infrastructure.yml > /dev/null
+echo "✅ Template validation passed"
+
+# Check if stack exists
+if aws cloudformation describe-stacks --stack-name "$STACK_NAME" &> /dev/null; then
+    echo "📝 Updating existing stack..."
+    ACTION="update-stack"
+    WAIT_CONDITION="stack-update-complete"
 else
-    echo "⚠️  Deployment helper script not found, running basic checks..."
-    
-    # Basic checks
-    echo "🔍 Checking Node.js project..."
-    npm ci
-    npm run lint
-    npm test
-    
-    echo ""
-    echo "✅ Basic checks completed!"
-    echo ""
-    echo "📝 Next steps:"
-    echo "1. Configure GitHub secrets (AWS_ACCOUNT_ID_STAGING, AWS_ACCOUNT_ID_PROD)"
-    echo "2. Set up GitHub environments (staging, production)"
-    echo "3. Go to Actions tab and run the 'Lambda CI/CD Pipeline' workflow"
-    echo ""
-    echo "📖 For detailed instructions, see: DEPLOY_GITHUB_ACTIONS.md"
+    echo "🆕 Creating new stack (includes OIDC provider setup)..."
+    ACTION="create-stack"
+    WAIT_CONDITION="stack-create-complete"
 fi
+
+# Deploy stack
+aws cloudformation $ACTION \
+    --stack-name "$STACK_NAME" \
+    --template-body file://cloudformation/lambda-infrastructure.yml \
+    --parameters file://cloudformation/parameters/${ENVIRONMENT}.json \
+    --capabilities CAPABILITY_NAMED_IAM \
+    --region "$AWS_REGION"
+
+echo "⏳ Waiting for deployment to complete..."
+aws cloudformation wait $WAIT_CONDITION --stack-name "$STACK_NAME" --region "$AWS_REGION"
+
+echo "✅ Deployment completed successfully!"
+echo "🔗 Check your Lambda function in the AWS Console"

@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Complete AWS Lambda Infrastructure with CI/CD Pipeline - Single Template for All Environments'
+Description: 'Simple AWS Lambda Infrastructure for TypeScript Function'
 
 Parameters:
   Environment:
@@ -325,8 +325,23 @@ Resources:
         - Key: ManagedBy
           Value: cloudformation
 
-  # Use existing GitHub OIDC Provider
-  # Note: We reference the existing OIDC provider instead of creating a new one
+  # GitHub OIDC Provider (creates if doesn't exist)
+  GitHubOIDCProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+        - 1c58a3a8518e8759bf075b76b750d4f2df264fcd
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: lambda-production-readiness
+        - Key: ManagedBy
+          Value: cloudformation
 
   # GitHub Actions IAM Role for Staging
   GitHubActionsStagingRole:
@@ -339,7 +354,7 @@ Resources:
         Statement:
           - Effect: Allow
             Principal:
-              Federated: !Sub 'arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com'
+              Federated: !Ref GitHubOIDCProvider
             Action: sts:AssumeRoleWithWebIdentity
             Condition:
               StringEquals:
@@ -414,7 +429,7 @@ Resources:
         Statement:
           - Effect: Allow
             Principal:
-              Federated: !Sub 'arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com'
+              Federated: !Ref GitHubOIDCProvider
             Action: sts:AssumeRoleWithWebIdentity
             Condition:
               StringEquals:
@@ -476,56 +491,7 @@ Resources:
         - Key: ManagedBy
           Value: cloudformation
 
-  # GitHub Actions Security Scan Role
-  GitHubActionsSecurityScanRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: GitHubActions-SecurityScan
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Federated: !Sub 'arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com'
-            Action: sts:AssumeRoleWithWebIdentity
-            Condition:
-              StringEquals:
-                'token.actions.githubusercontent.com:aud': sts.amazonaws.com
-              StringLike:
-                'token.actions.githubusercontent.com:sub': !Sub 'repo:${GitHubRepository}:*'
-      Policies:
-        - PolicyName: GitHubActions-SecurityScan-Policy
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - securityhub:BatchImportFindings
-                  - securityhub:DescribeHub
-                  - securityhub:GetFindings
-                  - securityhub:EnableSecurityHub
-                  - securityhub:GetEnabledStandards
-                  - securityhub:BatchUpdateFindings
-                Resource: '*'
-              - Effect: Allow
-                Action:
-                  - cloudformation:ValidateTemplate
-                  - cloudformation:DescribeStacks
-                  - cloudformation:ListStacks
-                Resource: '*'
-              - Effect: Allow
-                Action:
-                  - logs:CreateLogGroup
-                  - logs:CreateLogStream
-                  - logs:PutLogEvents
-                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/github-actions/security-scan*'
-      Tags:
-        - Key: Environment
-          Value: security
-        - Key: Project
-          Value: lambda-production-readiness
-        - Key: ManagedBy
-          Value: cloudformation
+
 
 Outputs:
   LambdaFunctionArn:
@@ -575,7 +541,7 @@ Outputs:
 
   GitHubOIDCProviderArn:
     Description: GitHub OIDC Provider ARN
-    Value: !Sub 'arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com'
+    Value: !Ref GitHubOIDCProvider
     Export:
       Name: !Sub '${AWS::StackName}-GitHubOIDCProviderArn'
 
@@ -593,11 +559,7 @@ Outputs:
     Export:
       Name: !Sub '${AWS::StackName}-GitHubActionsProductionRoleArn'
 
-  GitHubActionsSecurityScanRoleArn:
-    Description: GitHub Actions Security Scan Role ARN
-    Value: !GetAtt GitHubActionsSecurityScanRole.Arn
-    Export:
-      Name: !Sub '${AWS::StackName}-GitHubActionsSecurityScanRoleArn'
+
 
   Environment:
     Description: Environment name

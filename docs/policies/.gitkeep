@@ -1,7 +1,0 @@
-# Policy-as-Code Guardrails
-
-This directory will contain:
-- service-control-policies/
-- aws-config-rules/
-- iam-permission-boundaries/
-- ci-cd-policy-checks/

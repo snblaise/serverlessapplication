@@ -1,1 +1,0 @@
-{"statusCode":200,"headers":{"Content-Type":"application/json","X-Correlation-ID":"4e0ec000-c349-45d1-8043-37cd9e13afc6"},"body":"{\"success\":true,\"data\":{\"id\":\"id_1756363123600_81potos73\",\"name\":\"test\",\"status\":\"created\",\"timestamp\":\"2025-08-28T06:38:43.600Z\"},\"correlationId\":\"4e0ec000-c349-45d1-8043-37cd9e13afc6\"}"}

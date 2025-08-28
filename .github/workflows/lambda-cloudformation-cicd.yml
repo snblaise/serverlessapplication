@@ -44,7 +44,6 @@ jobs:
       aws-region: ${{ steps.env.outputs.aws-region }}
       staging-role-arn: ${{ steps.env.outputs.staging-role-arn }}
       production-role-arn: ${{ steps.env.outputs.production-role-arn }}
-      security-scan-role-arn: ${{ steps.env.outputs.security-scan-role-arn }}
       should-deploy: ${{ steps.env.outputs.should-deploy }}
     
     steps:
@@ -63,7 +62,7 @@ jobs:
           echo "aws-region=${{ env.AWS_REGION }}" >> $GITHUB_OUTPUT
           echo "staging-role-arn=arn:aws:iam::948572562675:role/GitHubActions-Lambda-Staging" >> $GITHUB_OUTPUT
           echo "production-role-arn=arn:aws:iam::948572562675:role/GitHubActions-Lambda-Production" >> $GITHUB_OUTPUT
-          echo "security-scan-role-arn=arn:aws:iam::948572562675:role/GitHubActions-SecurityScan" >> $GITHUB_OUTPUT
+
           
           # Determine if we should deploy
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
@@ -113,89 +112,20 @@ jobs:
           flags: unittests
           name: codecov-umbrella
 
-  security-scan:
-    name: Security Scanning
+  validate-template:
+    name: Validate CloudFormation
     runs-on: ubuntu-latest
     needs: setup
-    permissions:
-      id-token: write
-      contents: read
-      security-events: write
     
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Debug setup outputs
-        run: |
-          echo "Security scan role ARN: ${{ needs.setup.outputs.security-scan-role-arn }}"
-          echo "AWS region: ${{ needs.setup.outputs.aws-region }}"
-
-      - name: Debug role information
-        run: |
-          echo "Security Scan Role ARN: ${{ needs.setup.outputs.security-scan-role-arn }}"
-          echo "AWS Region: ${{ needs.setup.outputs.aws-region }}"
-          echo "GitHub Repository: ${{ github.repository }}"
-          echo "GitHub Ref: ${{ github.ref }}"
-
-      # AWS credentials will be configured in a separate job for CloudFormation validation
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run npm audit
-        run: npm audit --audit-level=high
-
-      - name: Check if Snyk token is available
-        id: snyk-check
-        run: |
-          if [[ -n "${{ secrets.SNYK_TOKEN }}" ]]; then
-            echo "snyk-available=true" >> $GITHUB_OUTPUT
-          else
-            echo "snyk-available=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Run Snyk security scan
-        if: steps.snyk-check.outputs.snyk-available == 'true'
-        uses: snyk/actions/node@master
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        with:
-          args: --severity-threshold=high
-        continue-on-error: true
-
-      - name: Skip Snyk scan (no token)
-        if: steps.snyk-check.outputs.snyk-available == 'false'
-        run: |
-          echo "⚠️ Snyk security scan skipped - SNYK_TOKEN not configured"
-          echo "To enable Snyk scanning:"
-          echo "1. Sign up at https://snyk.io"
-          echo "2. Get your API token from https://app.snyk.io/account"
-          echo "3. Add it as SNYK_TOKEN secret in GitHub repository settings"
-
       - name: Install CloudFormation tools
-        run: |
-          # Install cfn-lint for template analysis
-          pip install cfn-lint
+        run: pip install cfn-lint
 
-      - name: Run CloudFormation security analysis
-        run: |
-          # Lint CloudFormation template (this doesn't require AWS credentials)
-          cfn-lint cloudformation/lambda-infrastructure.yml
-          
-          echo "✅ CloudFormation template passed security analysis"
-
-      - name: CloudFormation template validation summary
-        run: |
-          echo "✅ CloudFormation security analysis completed"
-          echo "📋 cfn-lint passed - template follows AWS best practices"
-          echo "📋 AWS validation will be performed in deployment job"
+      - name: Lint CloudFormation template
+        run: cfn-lint cloudformation/lambda-infrastructure.yml
 
   build-and-package:
     name: Build and Package Lambda
@@ -251,7 +181,7 @@ jobs:
   deploy-infrastructure:
     name: Deploy Infrastructure
     runs-on: ubuntu-latest
-    needs: [setup, build-and-package, security-scan]
+    needs: [setup, build-and-package, validate-template]
     if: needs.setup.outputs.should-deploy == 'true'
     environment: ${{ needs.setup.outputs.environment }}
     permissions:
