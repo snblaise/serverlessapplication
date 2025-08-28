@@ -361,12 +361,17 @@ jobs:
         run: |
           echo "📋 Testing Lambda function..."
           
-          # Create a simple test payload file with minimal content
-          printf '{"action":"create","data":{"name":"test"},"source":"ci"}' > test.json
+          # Create a simple test payload file with proper encoding
+          cat > test.json << 'EOF'
+          {"action":"create","data":{"name":"test"},"source":"ci"}
+          EOF
           
           # Verify the file was created correctly
           echo "Payload file contents:"
           cat test.json
+          echo ""
+          echo "File encoding check:"
+          file test.json
           echo ""
           
           # Use the file-based approach which should work reliably
