@@ -364,15 +364,48 @@ jobs:
           
           # Import existing resources to avoid conflicts
           echo "🔍 Importing existing resources..."
+          
+          # Import S3 bucket
           BUCKET_NAME="lambda-artifacts-staging-${{ secrets.AWS_ACCOUNT_ID }}"
           if aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
             terraform import aws_s3_bucket.lambda_artifacts "$BUCKET_NAME" || true
           fi
           
+          # Import Lambda function
           FUNCTION_NAME="lambda-function-staging"
           if aws lambda get-function --function-name "$FUNCTION_NAME" 2>/dev/null; then
-            terraform import module.lambda_function.aws_lambda_function.this "$FUNCTION_NAME" || true
+            terraform import module.lambda_function.aws_lambda_function.main "$FUNCTION_NAME" || true
           fi
+          
+          # Import Lambda alias
+          if aws lambda get-alias --function-name "$FUNCTION_NAME" --name "live" 2>/dev/null; then
+            terraform import module.lambda_function.aws_lambda_alias.live "$FUNCTION_NAME:live" || true
+          fi
+          
+          # Import IAM roles
+          CODEDEPLOY_ROLE="CodeDeployServiceRole-staging"
+          if aws iam get-role --role-name "$CODEDEPLOY_ROLE" 2>/dev/null; then
+            terraform import aws_iam_role.codedeploy_service_role "$CODEDEPLOY_ROLE" || true
+          fi
+          
+          LAMBDA_ROLE="lambda-function-staging-execution-role"
+          if aws iam get-role --role-name "$LAMBDA_ROLE" 2>/dev/null; then
+            terraform import module.lambda_function.aws_iam_role.lambda_execution "$LAMBDA_ROLE" || true
+          fi
+          
+          # Import CodeDeploy app
+          CODEDEPLOY_APP="lambda-app-staging"
+          if aws deploy get-application --application-name "$CODEDEPLOY_APP" 2>/dev/null; then
+            terraform import aws_codedeploy_app.lambda_app "$CODEDEPLOY_APP" || true
+          fi
+          
+          # Import CloudWatch alarms
+          aws cloudwatch describe-alarms --alarm-names "lambda-error-rate-staging" 2>/dev/null && \
+            terraform import aws_cloudwatch_metric_alarm.lambda_error_rate "lambda-error-rate-staging" || true
+          aws cloudwatch describe-alarms --alarm-names "lambda-duration-staging" 2>/dev/null && \
+            terraform import aws_cloudwatch_metric_alarm.lambda_duration "lambda-duration-staging" || true
+          aws cloudwatch describe-alarms --alarm-names "lambda-throttle-staging" 2>/dev/null && \
+            terraform import aws_cloudwatch_metric_alarm.lambda_throttle "lambda-throttle-staging" || true
           
           # Plan infrastructure deployment
           terraform plan \
@@ -383,9 +416,17 @@ jobs:
           # Apply with rollback on failure
           if ! terraform apply -auto-approve tfplan; then
             echo "❌ Terraform failed, rolling back..."
+            
+            # Remove lifecycle prevent_destroy temporarily for rollback
+            sed -i 's/prevent_destroy = true/prevent_destroy = false/g' *.tf modules/*/*.tf || true
+            
             terraform destroy -auto-approve \
               -var="environment=staging" \
               -var="lambda_function_name=lambda-function-staging" || true
+            
+            # Restore prevent_destroy
+            git checkout -- *.tf modules/ || true
+            
             exit 1
           fi
           
