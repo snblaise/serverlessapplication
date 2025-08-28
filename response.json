@@ -1,0 +1,1 @@
+{"statusCode":200,"headers":{"Content-Type":"application/json","X-Correlation-ID":"84dee778-dc38-4072-86e1-357e8db91a97"},"body":"{\"success\":true,\"data\":{\"id\":\"id_1756362247853_mafbjhftu\",\"name\":\"local-test\",\"status\":\"created\",\"timestamp\":\"2025-08-28T06:24:07.853Z\"},\"correlationId\":\"84dee778-dc38-4072-86e1-357e8db91a97\"}"}

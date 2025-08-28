@@ -350,8 +350,8 @@ jobs:
 
       - name: Test Lambda function
         run: |
-          # Create test payload file
-          echo '{"test": true, "source": "github-actions"}' > test-payload.json
+          # Create test payload file with required action field
+          echo '{"action": "create", "data": {"name": "github-actions-test"}, "source": "github-actions"}' > test-payload.json
           
           # Invoke Lambda function to test
           aws lambda invoke \
