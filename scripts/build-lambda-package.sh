@@ -1,17 +1,18 @@
 #!/bin/bash
 
-# Build script for Lambda function package
-# This script creates a deployment-ready Lambda package
+# Build script for TypeScript Lambda function package
+# This script compiles TypeScript and creates a deployment-ready Lambda package
 
 set -euo pipefail
 
 # Configuration
 PACKAGE_NAME="lambda-function.zip"
 SOURCE_DIR="src"
+DIST_DIR="dist"
 BUILD_DIR="build"
 MANIFEST_FILE="package-manifest.json"
 
-echo "[INFO] 🏗️  Building Lambda deployment package..."
+echo "[INFO] 🏗️  Building TypeScript Lambda deployment package..."
 
 # Clean previous builds
 if [[ -d "$BUILD_DIR" ]]; then
@@ -19,17 +20,32 @@ if [[ -d "$BUILD_DIR" ]]; then
     rm -rf "$BUILD_DIR"
 fi
 
+if [[ -d "$DIST_DIR" ]]; then
+    echo "[INFO] Cleaning previous dist directory..."
+    rm -rf "$DIST_DIR"
+fi
+
 if [[ -f "$PACKAGE_NAME" ]]; then
     echo "[INFO] Removing previous package..."
     rm -f "$PACKAGE_NAME"
 fi
 
+# Compile TypeScript
+echo "[INFO] Compiling TypeScript..."
+npm run build
+
+# Verify compilation succeeded
+if [[ ! -d "$DIST_DIR" ]]; then
+    echo "[ERROR] TypeScript compilation failed - dist directory not found"
+    exit 1
+fi
+
 # Create build directory
 mkdir -p "$BUILD_DIR"
 
-# Copy source files
-echo "[INFO] Copying source files..."
-cp -r "$SOURCE_DIR"/* "$BUILD_DIR/"
+# Copy compiled JavaScript files
+echo "[INFO] Copying compiled JavaScript files..."
+cp -r "$DIST_DIR"/* "$BUILD_DIR/"
 
 # Install production dependencies in build directory
 echo "[INFO] Installing production dependencies..."
@@ -67,7 +83,10 @@ cat > "$MANIFEST_FILE" << EOF
   "packageHash": "$PACKAGE_HASH",
   "buildTimestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
   "sourceFiles": [
-$(find "$SOURCE_DIR" -name "*.js" | grep -v "\.test\." | sed 's/.*/"&"/' | paste -sd, -)
+$(find "$SOURCE_DIR" -name "*.ts" | grep -v "\.test\." | grep -v "\.spec\." | sed 's/.*/"&"/' | paste -sd, -)
+  ],
+  "compiledFiles": [
+$(find "$DIST_DIR" -name "*.js" 2>/dev/null | sed 's/.*/"&"/' | paste -sd, - || echo "")
   ],
   "dependencies": $(cd "$BUILD_DIR" && npm list --json --only=production 2>/dev/null | jq -c '.dependencies // {}')
 }
@@ -79,7 +98,8 @@ echo "$PACKAGE_HASH  $PACKAGE_NAME" > "$PACKAGE_NAME.sha256"
 # Clean up build directory
 rm -rf "$BUILD_DIR"
 
-echo "[INFO] ✅ Lambda package built successfully!"
+echo "[INFO] ✅ TypeScript Lambda package built successfully!"
 echo "[INFO] 📦 Package: $PACKAGE_NAME ($PACKAGE_SIZE bytes)"
 echo "[INFO] 🔐 SHA256: $PACKAGE_HASH"
 echo "[INFO] 📋 Manifest: $MANIFEST_FILE"
+echo "[INFO] 🎯 Runtime: Node.js with compiled TypeScript"

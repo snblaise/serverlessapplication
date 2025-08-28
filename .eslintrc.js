@@ -1,61 +1,44 @@
 module.exports = {
-  env: {
-    browser: false,
-    es2021: true,
-    node: true,
-    jest: true
-  },
-  extends: [
-    'standard'
-  ],
+  parser: '@typescript-eslint/parser',
   parserOptions: {
-    ecmaVersion: 'latest',
-    sourceType: 'module'
+    ecmaVersion: 2022,
+    sourceType: 'module',
+    project: './tsconfig.json',
+  },
+  plugins: ['@typescript-eslint'],
+  extends: [
+    'eslint:recommended',
+    'plugin:@typescript-eslint/recommended',
+  ],
+  env: {
+    node: true,
+    es2022: true,
+    jest: true,
   },
   rules: {
-    // Enforce semicolons for consistency
-    'semi': ['error', 'always'],
+    // TypeScript specific rules
+    '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+    '@typescript-eslint/explicit-function-return-type': 'warn',
+    '@typescript-eslint/no-explicit-any': 'warn',
+    '@typescript-eslint/no-unsafe-assignment': 'off', // Disabled for JSON.parse usage in tests
+    '@typescript-eslint/no-unsafe-member-access': 'off', // Disabled for JSON.parse usage in tests
+    '@typescript-eslint/no-unsafe-call': 'warn',
+    '@typescript-eslint/no-unsafe-return': 'warn',
+    '@typescript-eslint/prefer-nullish-coalescing': 'error',
+    '@typescript-eslint/prefer-optional-chain': 'error',
+    '@typescript-eslint/no-floating-promises': 'error',
     
-    // Allow console.log for Lambda logging
-    'no-console': 'off',
-    
-    // Enforce consistent spacing
-    'space-before-function-paren': ['error', 'never'],
-    
-    // Allow trailing commas for cleaner diffs
-    'comma-dangle': ['error', 'always-multiline'],
-    
-    // Enforce consistent quotes
-    'quotes': ['error', 'single'],
-    
-    // Enforce consistent indentation
-    'indent': ['error', 2],
-    
-    // Enforce consistent line endings
-    'eol-last': ['error', 'always'],
-    
-    // Disallow unused variables except for function arguments
-    'no-unused-vars': ['error', { 'argsIgnorePattern': '^_' }],
-    
-    // Enforce consistent object property spacing
-    'key-spacing': ['error', { 'beforeColon': false, 'afterColon': true }],
-    
-    // Enforce consistent array bracket spacing
-    'array-bracket-spacing': ['error', 'never'],
-    
-    // Enforce consistent object brace spacing
-    'object-curly-spacing': ['error', 'always']
+    // General rules
+    'no-console': 'off', // Allow console.log for Lambda logging
+    'prefer-const': 'error',
+    'no-var': 'error',
+    'object-shorthand': 'error',
+    'prefer-template': 'error',
   },
-  overrides: [
-    {
-      files: ['**/*.test.js'],
-      env: {
-        jest: true
-      },
-      rules: {
-        // Allow longer lines in tests for readability
-        'max-len': 'off'
-      }
-    }
-  ]
+  ignorePatterns: [
+    'dist/',
+    'node_modules/',
+    '*.js',
+    '.eslintrc.js',
+  ],
 };

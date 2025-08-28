@@ -1,11 +1,12 @@
-const { Logger } = require('@aws-lambda-powertools/logger');
-const { Metrics, MetricUnits } = require('@aws-lambda-powertools/metrics');
-const { Tracer } = require('@aws-lambda-powertools/tracer');
+import { APIGatewayProxyResult, Context } from 'aws-lambda';
+import { Logger } from '@aws-lambda-powertools/logger';
+import { Metrics, MetricUnits } from '@aws-lambda-powertools/metrics';
+import { Tracer } from '@aws-lambda-powertools/tracer';
 
 // Initialize Powertools
 const logger = new Logger({
   serviceName: 'lambda-production-readiness',
-  logLevel: process.env.LOG_LEVEL || 'INFO',
+  logLevel: (process.env['LOG_LEVEL'] as 'DEBUG' | 'INFO' | 'WARN' | 'ERROR') || 'INFO',
 });
 
 const metrics = new Metrics({
@@ -17,18 +18,40 @@ const tracer = new Tracer({
   serviceName: 'lambda-production-readiness',
 });
 
+// Define interfaces for our event structure
+interface EventData {
+  id?: string;
+  name?: string;
+  [key: string]: unknown;
+}
+
+interface LambdaEvent {
+  action: 'create' | 'update' | 'delete';
+  data: EventData;
+  source?: string;
+  [key: string]: unknown;
+}
+
+interface ProcessResult {
+  id: string;
+  name?: string;
+  status: 'created' | 'updated' | 'deleted';
+  timestamp: string;
+}
+
 /**
  * Main Lambda handler function
- * Demonstrates production-ready patterns with observability
+ * Demonstrates production-ready patterns with observability using TypeScript
  */
-exports.handler = async(event, context) => {
+export const handler = async (event: LambdaEvent, context: Context): Promise<APIGatewayProxyResult> => {
   // Add correlation ID for tracing
   const correlationId = context.awsRequestId;
-  logger.addContext({ correlationId });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  logger.addContext({ correlationId } as any);
 
   // Start custom segment for business logic
   const segment = tracer.getSegment();
-  const subsegment = segment.addNewSubsegment('business-logic');
+  const subsegment = segment?.addNewSubsegment('business-logic');
 
   try {
     logger.info('Lambda function started', {
@@ -76,17 +99,20 @@ exports.handler = async(event, context) => {
     // Add error metrics
     metrics.addMetric('ErrorCount', MetricUnits.Count, 1);
 
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorStack = error instanceof Error ? error.stack : undefined;
+
     logger.error('Lambda function failed', {
-      error: error.message,
-      stack: error.stack,
+      error: errorMessage,
+      stack: errorStack,
       correlationId,
     });
 
     // Add error annotation to X-Ray
-    subsegment.addAnnotation('error', true);
-    subsegment.addMetadata('error', {
-      message: error.message,
-      stack: error.stack,
+    subsegment?.addAnnotation('error', true);
+    subsegment?.addMetadata('error', {
+      message: errorMessage,
+      stack: errorStack,
     });
 
     return {
@@ -103,7 +129,7 @@ exports.handler = async(event, context) => {
     };
   } finally {
     // Close subsegment
-    subsegment.close();
+    subsegment?.close();
 
     // Publish metrics
     metrics.publishStoredMetrics();
@@ -112,12 +138,12 @@ exports.handler = async(event, context) => {
 
 /**
  * Process the incoming event
- * @param {Object} event - Lambda event object
- * @param {string} correlationId - Correlation ID for tracing
- * @returns {Object} Processing result
+ * @param event - Lambda event object
+ * @param correlationId - Correlation ID for tracing
+ * @returns Processing result
  */
-async function processEvent(event, correlationId) {
-  const processingSegment = tracer.getSegment().addNewSubsegment('process-event');
+async function processEvent(event: LambdaEvent, correlationId: string): Promise<ProcessResult> {
+  const processingSegment = tracer.getSegment()?.addNewSubsegment('process-event');
 
   try {
     logger.debug('Processing event', { event, correlationId });
@@ -133,38 +159,38 @@ async function processEvent(event, correlationId) {
     }
 
     // Process based on action type
-    let result;
+    let result: ProcessResult;
     switch (action) {
-    case 'create':
-      result = await handleCreate(data, correlationId);
-      break;
-    case 'update':
-      result = await handleUpdate(data, correlationId);
-      break;
-    case 'delete':
-      result = await handleDelete(data, correlationId);
-      break;
-    default:
-      throw new Error(`Unsupported action: ${action}`);
+      case 'create':
+        result = await handleCreate(data, correlationId);
+        break;
+      case 'update':
+        result = await handleUpdate(data, correlationId);
+        break;
+      case 'delete':
+        result = await handleDelete(data, correlationId);
+        break;
+      default:
+        throw new Error(`Unsupported action: ${action}`);
     }
 
-    processingSegment.addAnnotation('action', action);
-    processingSegment.addMetadata('result', result);
+    processingSegment?.addAnnotation('action', action);
+    processingSegment?.addMetadata('result', result);
 
     return result;
   } finally {
-    processingSegment.close();
+    processingSegment?.close();
   }
 }
 
 /**
  * Handle create action
  */
-async function handleCreate(data, correlationId) {
+async function handleCreate(data: EventData, correlationId: string): Promise<ProcessResult> {
   logger.info('Handling create action', { data, correlationId });
 
   // Validate required fields for create
-  if (!data || !data.name) {
+  if (!data?.name) {
     throw new Error('Missing required field for create: name');
   }
 
@@ -182,11 +208,11 @@ async function handleCreate(data, correlationId) {
 /**
  * Handle update action
  */
-async function handleUpdate(data, correlationId) {
+async function handleUpdate(data: EventData, correlationId: string): Promise<ProcessResult> {
   logger.info('Handling update action', { data, correlationId });
 
   // Validate required fields for update
-  if (!data || !data.id) {
+  if (!data?.id) {
     throw new Error('Missing required field for update: id');
   }
 
@@ -203,11 +229,11 @@ async function handleUpdate(data, correlationId) {
 /**
  * Handle delete action
  */
-async function handleDelete(data, correlationId) {
+async function handleDelete(data: EventData, correlationId: string): Promise<ProcessResult> {
   logger.info('Handling delete action', { data, correlationId });
 
   // Validate required fields for delete
-  if (!data || !data.id) {
+  if (!data?.id) {
     throw new Error('Missing required field for delete: id');
   }
 
@@ -224,6 +250,6 @@ async function handleDelete(data, correlationId) {
 /**
  * Generate a unique ID
  */
-function generateId() {
+function generateId(): string {
   return `id_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }

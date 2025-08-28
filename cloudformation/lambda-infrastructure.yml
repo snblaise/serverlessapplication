@@ -140,20 +140,29 @@ Resources:
     Properties:
       FunctionName: !Sub '${LambdaFunctionName}-${Environment}'
       Runtime: nodejs22.x
-      Handler: index.handler
+      Handler: dist/index.handler
       Role: !GetAtt LambdaExecutionRole.Arn
       Timeout: !Ref LambdaTimeout
       MemorySize: !Ref LambdaMemorySize
       Code:
         ZipFile: |
-          exports.handler = async (event) => {
+          // TypeScript Lambda Function Placeholder
+          // This will be replaced during deployment with the compiled TypeScript code
+          exports.handler = async (event, context) => {
               console.log('Event:', JSON.stringify(event, null, 2));
+              console.log('Context:', JSON.stringify(context, null, 2));
               return {
                   statusCode: 200,
+                  headers: {
+                      'Content-Type': 'application/json',
+                      'X-Correlation-ID': context.awsRequestId
+                  },
                   body: JSON.stringify({
-                      message: 'Hello from Lambda!',
+                      success: true,
+                      message: 'Hello from TypeScript Lambda!',
                       environment: process.env.ENVIRONMENT,
-                      timestamp: new Date().toISOString()
+                      timestamp: new Date().toISOString(),
+                      correlationId: context.awsRequestId
                   })
               };
           };

@@ -94,6 +94,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: TypeScript type checking
+        run: npm run validate
+
       - name: Run linting
         run: npm run lint
 
@@ -210,26 +213,32 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: Install production dependencies
-        run: npm ci --only=production
+      - name: Install all dependencies
+        run: npm ci
+
+      - name: Build TypeScript
+        run: |
+          echo "🔨 Building TypeScript..."
+          npm run build
+          
+          echo "📋 Build output:"
+          ls -la dist/
+
+      - name: Install production dependencies for packaging
+        run: |
+          # Clean and install only production dependencies
+          rm -rf node_modules
+          npm ci --only=production
 
       - name: Create Lambda deployment package
         run: |
-          # Create deployment directory
-          mkdir -p dist
-          
-          # Copy source files
-          cp -r src/* dist/
-          cp -r node_modules dist/
-          
-          # Create ZIP package
-          cd dist
-          zip -r ../lambda-function.zip .
-          cd ..
+          # Create ZIP package with compiled TypeScript and production dependencies
+          zip -r lambda-function.zip dist/ node_modules/
           
           # Verify package
           echo "📦 Lambda package created:"
           ls -lh lambda-function.zip
+          echo "📋 Package contents:"
           unzip -l lambda-function.zip | head -20
 
       - name: Upload Lambda package artifact
