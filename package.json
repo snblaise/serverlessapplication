@@ -4,7 +4,8 @@
   "description": "Production-ready serverless Lambda function with comprehensive CI/CD pipeline",
   "main": "src/index.js",
   "scripts": {
-    "test": "jest --coverage --testResultsProcessor=jest-junit",
+    "test": "jest",
+    "test:coverage": "jest --coverage --testResultsProcessor=jest-junit",
     "test:watch": "jest --watch",
     "lint": "eslint src/ --ext .js",
     "lint:fix": "eslint src/ --ext .js --fix",
@@ -31,7 +32,7 @@
     "aws-sdk-mock": "^5.8.0"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   },
   "keywords": [
     "aws",

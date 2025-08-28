@@ -139,7 +139,7 @@ Resources:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub '${LambdaFunctionName}-${Environment}'
-      Runtime: nodejs18.x
+      Runtime: nodejs22.x
       Handler: index.handler
       Role: !GetAtt LambdaExecutionRole.Arn
       Timeout: !Ref LambdaTimeout
@@ -367,10 +367,10 @@ Resources:
               - Effect: Allow
                 Action: 's3:*'
                 Resource:
-                  - !Sub 'arn:aws:s3:::*staging*'
-                  - !Sub 'arn:aws:s3:::*staging*/*'
-                  - !Sub 'arn:aws:s3:::lambda-artifacts-staging*'
-                  - !Sub 'arn:aws:s3:::lambda-artifacts-staging*/*'
+                  - 'arn:aws:s3:::*staging*'
+                  - 'arn:aws:s3:::*staging*/*'
+                  - 'arn:aws:s3:::lambda-artifacts-staging*'
+                  - 'arn:aws:s3:::lambda-artifacts-staging*/*'
               - Effect: Allow
                 Action: 'iam:*'
                 Resource:
@@ -399,7 +399,8 @@ Resources:
                 Resource: '*'
               - Effect: Allow
                 Action: 'sqs:*'
-                Resource: !Sub 'arn:aws:sqs:${AWS::Region}:${AWS::AccountId}:*staging*'
+                Resource: 
+                  - !Sub 'arn:aws:sqs:${AWS::Region}:${AWS::AccountId}:*staging*'
       Tags:
         - Key: Environment
           Value: staging
@@ -439,10 +440,10 @@ Resources:
               - Effect: Allow
                 Action: 's3:*'
                 Resource:
-                  - !Sub 'arn:aws:s3:::*production*'
-                  - !Sub 'arn:aws:s3:::*production*/*'
-                  - !Sub 'arn:aws:s3:::lambda-artifacts-production*'
-                  - !Sub 'arn:aws:s3:::lambda-artifacts-production*/*'
+                  - 'arn:aws:s3:::*production*'
+                  - 'arn:aws:s3:::*production*/*'
+                  - 'arn:aws:s3:::lambda-artifacts-production*'
+                  - 'arn:aws:s3:::lambda-artifacts-production*/*'
               - Effect: Allow
                 Action: 'iam:*'
                 Resource:
@@ -471,7 +472,8 @@ Resources:
                 Resource: '*'
               - Effect: Allow
                 Action: 'sqs:*'
-                Resource: !Sub 'arn:aws:sqs:${AWS::Region}:${AWS::AccountId}:*production*'
+                Resource: 
+                  - !Sub 'arn:aws:sqs:${AWS::Region}:${AWS::AccountId}:*production*'
       Tags:
         - Key: Environment
           Value: production
