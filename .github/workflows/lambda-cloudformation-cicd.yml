@@ -350,48 +350,41 @@ jobs:
 
       - name: Test Lambda function
         run: |
-          # Create test payload file with required action field using cat to avoid encoding issues
-          cat > test-payload.json << 'EOF'
-          {
-            "action": "create",
-            "data": {
-              "name": "github-actions-test"
-            },
-            "source": "github-actions"
-          }
-          EOF
+          # Use a simple approach with base64 encoding to avoid UTF-8 issues
+          echo "📋 Testing Lambda function..."
           
-          # Verify the payload file is valid JSON
-          echo "📋 Test payload:"
-          cat test-payload.json
-          jq . test-payload.json > /dev/null || (echo "❌ Invalid JSON payload" && exit 1)
+          # Create payload and encode it properly
+          echo '{"action":"create","data":{"name":"test"},"source":"ci"}' | base64 > payload.b64
           
-          # Invoke Lambda function to test
+          # Invoke Lambda function with base64 encoded payload
           aws lambda invoke \
             --function-name "${{ steps.deploy-stack.outputs.lambda-function-name }}" \
-            --payload file://test-payload.json \
+            --payload fileb://payload.b64 \
             response.json
           
           echo "📋 Lambda function response:"
           cat response.json
           
-          # Verify response - check if it's a successful response
-          if jq -e 'has("statusCode")' response.json > /dev/null; then
-            STATUS_CODE=$(jq -r '.statusCode // 200' response.json)
-            if [[ "$STATUS_CODE" == "200" ]]; then
-              echo "✅ Lambda function test passed (Status: $STATUS_CODE)"
-              # Show the response body for verification
-              echo "Response body:"
-              jq -r '.body' response.json | jq .
+          # Simple validation - just check if we got a response
+          if [[ -s response.json ]]; then
+            echo "✅ Lambda function invoked successfully"
+            
+            # Try to parse the response
+            if jq -e '.statusCode' response.json > /dev/null 2>&1; then
+              STATUS_CODE=$(jq -r '.statusCode' response.json)
+              echo "Status Code: $STATUS_CODE"
+              
+              if [[ "$STATUS_CODE" == "200" ]]; then
+                echo "✅ Lambda function test passed!"
+              else
+                echo "⚠️ Lambda function returned non-200 status"
+              fi
             else
-              echo "⚠️ Lambda function returned status: $STATUS_CODE"
-              echo "Response body:"
-              jq -r '.body // "No body"' response.json
+              echo "✅ Lambda function executed (response format may vary)"
             fi
           else
-            # For successful invocations, AWS Lambda might return the result directly
-            echo "✅ Lambda function invoked successfully"
-            echo "Response: $(cat response.json)"
+            echo "❌ No response received from Lambda function"
+            exit 1
           fi
 
       - name: Save deployment info
