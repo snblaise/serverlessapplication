@@ -61,9 +61,9 @@ jobs:
           
           echo "environment=${ENVIRONMENT}" >> $GITHUB_OUTPUT
           echo "aws-region=${{ env.AWS_REGION }}" >> $GITHUB_OUTPUT
-          echo "staging-role-arn=arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/GitHubActions-Lambda-Staging" >> $GITHUB_OUTPUT
-          echo "production-role-arn=arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/GitHubActions-Lambda-Production" >> $GITHUB_OUTPUT
-          echo "security-scan-role-arn=arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/GitHubActions-SecurityScan" >> $GITHUB_OUTPUT
+          echo "staging-role-arn=arn:aws:iam::948572562675:role/GitHubActions-Lambda-Staging" >> $GITHUB_OUTPUT
+          echo "production-role-arn=arn:aws:iam::948572562675:role/GitHubActions-Lambda-Production" >> $GITHUB_OUTPUT
+          echo "security-scan-role-arn=arn:aws:iam::948572562675:role/GitHubActions-SecurityScan" >> $GITHUB_OUTPUT
           
           # Determine if we should deploy
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
@@ -122,6 +122,11 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Debug setup outputs
+        run: |
+          echo "Security scan role ARN: ${{ needs.setup.outputs.security-scan-role-arn }}"
+          echo "AWS region: ${{ needs.setup.outputs.aws-region }}"
 
       - name: Configure AWS credentials for security scanning
         uses: aws-actions/configure-aws-credentials@v4
