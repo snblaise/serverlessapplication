@@ -350,8 +350,21 @@ jobs:
 
       - name: Test Lambda function
         run: |
-          # Create test payload file with required action field
-          echo '{"action": "create", "data": {"name": "github-actions-test"}, "source": "github-actions"}' > test-payload.json
+          # Create test payload file with required action field using cat to avoid encoding issues
+          cat > test-payload.json << 'EOF'
+          {
+            "action": "create",
+            "data": {
+              "name": "github-actions-test"
+            },
+            "source": "github-actions"
+          }
+          EOF
+          
+          # Verify the payload file is valid JSON
+          echo "📋 Test payload:"
+          cat test-payload.json
+          jq . test-payload.json > /dev/null || (echo "❌ Invalid JSON payload" && exit 1)
           
           # Invoke Lambda function to test
           aws lambda invoke \
@@ -367,6 +380,9 @@ jobs:
             STATUS_CODE=$(jq -r '.statusCode // 200' response.json)
             if [[ "$STATUS_CODE" == "200" ]]; then
               echo "✅ Lambda function test passed (Status: $STATUS_CODE)"
+              # Show the response body for verification
+              echo "Response body:"
+              jq -r '.body' response.json | jq .
             else
               echo "⚠️ Lambda function returned status: $STATUS_CODE"
               echo "Response body:"
