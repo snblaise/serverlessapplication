@@ -18,6 +18,10 @@ if ! aws sts get-caller-identity &> /dev/null; then
     exit 1
 fi
 
+# Get AWS Account ID for reference
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+echo "AWS Account ID: ${ACCOUNT_ID}"
+
 # Validate template
 echo "🔍 Validating CloudFormation template..."
 aws cloudformation validate-template --template-body file://cloudformation/lambda-infrastructure.yml > /dev/null

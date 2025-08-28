@@ -22,9 +22,22 @@ A production-ready TypeScript Lambda function with automated CI/CD deployment.
    npm test
    ```
 
-3. **Deploy to AWS**:
-   - Push to `main` branch to deploy to staging
-   - Use GitHub Actions workflow dispatch to deploy to production
+3. **One-time setup** (create GitHub OIDC provider):
+   ```bash
+   ./setup-oidc.sh
+   ```
+
+4. **Deploy to AWS**:
+   ```bash
+   # Deploy to staging
+   ./deploy.sh staging
+   
+   # Or deploy to production
+   ./deploy.sh production
+   
+   # Or push to GitHub for automatic deployment
+   git push origin main
+   ```
 
 ### GitHub Actions Setup
 
@@ -69,5 +82,7 @@ npm run lint
 │   ├── lambda-infrastructure.yml  # AWS resources
 │   └── parameters/       # Environment configs
 ├── .github/workflows/    # CI/CD pipeline
+├── setup-oidc.sh        # One-time OIDC setup
+├── deploy.sh            # Deployment script
 └── package.json         # Dependencies and scripts
 ```
