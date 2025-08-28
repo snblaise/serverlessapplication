@@ -15,7 +15,7 @@ output "lambda_alias_arn" {
 
 output "codedeploy_application_name" {
   description = "Name of the CodeDeploy application"
-  value       = aws_codedeploy_app.lambda_app.name
+  value       = local.codedeploy_app_name
 }
 
 output "codedeploy_deployment_group_name" {
@@ -25,7 +25,7 @@ output "codedeploy_deployment_group_name" {
 
 output "s3_artifacts_bucket" {
   description = "Name of the S3 bucket for deployment artifacts"
-  value       = aws_s3_bucket.lambda_artifacts.bucket
+  value       = local.s3_bucket_name
 }
 
 output "cloudwatch_alarms" {

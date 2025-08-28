@@ -15,12 +15,12 @@ output "alias_arn" {
 
 output "execution_role_arn" {
   description = "ARN of the Lambda execution role"
-  value       = aws_iam_role.lambda_execution.arn
+  value       = local.lambda_role_arn
 }
 
 output "dlq_arn" {
   description = "ARN of the dead letter queue"
-  value       = aws_sqs_queue.dlq.arn
+  value       = local.dlq_arn
 }
 
 output "code_signing_config_arn" {

@@ -1,6 +1,6 @@
 resource "aws_lambda_function" "main" {
   function_name = var.function_name
-  role         = aws_iam_role.lambda_execution.arn
+  role         = local.lambda_role_arn
   handler      = "index.handler"
   runtime      = "nodejs18.x"
   timeout      = var.timeout
@@ -20,7 +20,14 @@ resource "aws_lambda_function" "main" {
   }
   
   dead_letter_config {
-    target_arn = aws_sqs_queue.dlq.arn
+    target_arn = local.dlq_arn
+  }
+  
+  lifecycle {
+    ignore_changes = [
+      filename,
+      source_code_hash
+    ]
   }
   
   # reserved_concurrency = var.reserved_concurrency
@@ -33,11 +40,26 @@ resource "aws_lambda_alias" "live" {
   description      = "Live alias for production traffic"
   function_name    = aws_lambda_function.main.function_name
   function_version = "$LATEST"
+  
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes = [
+      name,
+      description
+    ]
+  }
+}
+
+locals {
+  # Use adoption script to import existing resources instead of data sources
+  lambda_role_exists = false  # Will be imported by adoption script if exists
+  lambda_role_arn    = aws_iam_role.lambda_execution[0].arn
 }
 
 # Lambda execution role
 resource "aws_iam_role" "lambda_execution" {
-  name = "${var.function_name}-execution-role"
+  count = local.lambda_role_exists ? 0 : 1
+  name  = "${var.function_name}-execution-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -52,32 +74,56 @@ resource "aws_iam_role" "lambda_execution" {
     ]
   })
 
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes = [
+      name,
+      assume_role_policy
+    ]
+  }
+
   tags = var.tags
 }
 
 resource "aws_iam_role_policy_attachment" "lambda_basic_execution" {
-  role       = aws_iam_role.lambda_execution.name
+  count      = local.lambda_role_exists ? 0 : 1
+  role       = aws_iam_role.lambda_execution[0].name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
 resource "aws_iam_role_policy_attachment" "lambda_xray_write_only" {
-  count      = var.enable_xray_tracing ? 1 : 0
-  role       = aws_iam_role.lambda_execution.name
+  count      = var.enable_xray_tracing && !local.lambda_role_exists ? 1 : 0
+  role       = aws_iam_role.lambda_execution[0].name
   policy_arn = "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
+}
+
+locals {
+  # Use adoption script to import existing resources instead of data sources  
+  dlq_exists = false  # Will be imported by adoption script if exists
+  dlq_arn    = aws_sqs_queue.dlq[0].arn
 }
 
 # Dead letter queue
 resource "aws_sqs_queue" "dlq" {
-  name = "${var.function_name}-dlq"
+  count = local.dlq_exists ? 0 : 1
+  name  = "${var.function_name}-dlq"
   
   message_retention_seconds = 1209600 # 14 days
+  
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes = [
+      name
+    ]
+  }
   
   tags = var.tags
 }
 
 resource "aws_iam_role_policy" "lambda_dlq_policy" {
-  name = "${var.function_name}-dlq-policy"
-  role = aws_iam_role.lambda_execution.id
+  count = local.lambda_role_exists ? 0 : 1
+  name  = "${var.function_name}-dlq-policy"
+  role  = aws_iam_role.lambda_execution[0].id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -87,7 +133,7 @@ resource "aws_iam_role_policy" "lambda_dlq_policy" {
         Action = [
           "sqs:SendMessage"
         ]
-        Resource = aws_sqs_queue.dlq.arn
+        Resource = local.dlq_arn
       }
     ]
   })

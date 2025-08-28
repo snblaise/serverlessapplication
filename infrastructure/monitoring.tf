@@ -1,4 +1,5 @@
 # CloudWatch alarms for Lambda monitoring
+# Note: CloudWatch alarms don't have data sources, so we create them with lifecycle protection
 resource "aws_cloudwatch_metric_alarm" "lambda_error_rate" {
   alarm_name          = "lambda-error-rate-${var.environment}"
   comparison_operator = "GreaterThanThreshold"
@@ -7,12 +8,20 @@ resource "aws_cloudwatch_metric_alarm" "lambda_error_rate" {
   namespace           = "AWS/Lambda"
   period              = "300"
   statistic           = "Sum"
-  threshold           = "5"
+  threshold           = var.error_threshold
   alarm_description   = "This metric monitors lambda error rate"
   alarm_actions       = []
 
   dimensions = {
     FunctionName = var.lambda_function_name
+  }
+
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes = [
+      alarm_name,
+      alarm_description
+    ]
   }
 
   tags = {
@@ -29,12 +38,20 @@ resource "aws_cloudwatch_metric_alarm" "lambda_duration" {
   namespace           = "AWS/Lambda"
   period              = "300"
   statistic           = "Average"
-  threshold           = "10000"
+  threshold           = var.duration_threshold
   alarm_description   = "This metric monitors lambda duration"
   alarm_actions       = []
 
   dimensions = {
     FunctionName = var.lambda_function_name
+  }
+
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes = [
+      alarm_name,
+      alarm_description
+    ]
   }
 
   tags = {
@@ -51,12 +68,20 @@ resource "aws_cloudwatch_metric_alarm" "lambda_throttle" {
   namespace           = "AWS/Lambda"
   period              = "300"
   statistic           = "Sum"
-  threshold           = "1"
+  threshold           = var.throttle_threshold
   alarm_description   = "This metric monitors lambda throttles"
   alarm_actions       = []
 
   dimensions = {
     FunctionName = var.lambda_function_name
+  }
+
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes = [
+      alarm_name,
+      alarm_description
+    ]
   }
 
   tags = {

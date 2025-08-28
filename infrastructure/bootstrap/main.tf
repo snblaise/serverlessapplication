@@ -44,6 +44,15 @@ resource "aws_iam_openid_connect_provider" "github" {
     "1c58a3a8518e8759bf075b76b750d4f2df264fcd"
   ]
   
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes = [
+      url,
+      client_id_list,
+      thumbprint_list
+    ]
+  }
+  
   tags = {
     Name        = "GitHub Actions OIDC Provider"
     Environment = "bootstrap"
@@ -76,6 +85,14 @@ resource "aws_iam_role" "github_actions_staging" {
     ]
   })
 
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes = [
+      name,
+      assume_role_policy
+    ]
+  }
+
   tags = {
     Environment = "staging"
     Project     = "lambda-production-readiness"
@@ -107,6 +124,14 @@ resource "aws_iam_role" "github_actions_production" {
     ]
   })
 
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes = [
+      name,
+      assume_role_policy
+    ]
+  }
+
   tags = {
     Environment = "production"
     Project     = "lambda-production-readiness"
@@ -137,6 +162,14 @@ resource "aws_iam_role" "github_actions_security_scan" {
       }
     ]
   })
+
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes = [
+      name,
+      assume_role_policy
+    ]
+  }
 
   tags = {
     Environment = "security"

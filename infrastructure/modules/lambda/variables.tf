@@ -60,3 +60,9 @@ variable "code_signing_profile_arn" {
   type        = string
   default     = ""
 }
+
+variable "adopt_existing_resources" {
+  description = "Whether to adopt existing AWS resources instead of creating new ones"
+  type        = bool
+  default     = true
+}

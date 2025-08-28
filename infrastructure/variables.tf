@@ -67,3 +67,27 @@ variable "github_repository" {
   type        = string
   default     = ""
 }
+
+variable "adopt_existing_resources" {
+  description = "Whether to adopt existing AWS resources instead of creating new ones"
+  type        = bool
+  default     = true
+}
+
+variable "error_threshold" {
+  description = "Threshold for Lambda error rate alarm"
+  type        = number
+  default     = 5
+}
+
+variable "duration_threshold" {
+  description = "Threshold for Lambda duration alarm in milliseconds"
+  type        = number
+  default     = 10000
+}
+
+variable "throttle_threshold" {
+  description = "Threshold for Lambda throttle alarm"
+  type        = number
+  default     = 1
+}
