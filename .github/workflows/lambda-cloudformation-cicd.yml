@@ -350,37 +350,41 @@ jobs:
 
       - name: Test Lambda function
         run: |
-          # Use a simple approach with base64 encoding to avoid UTF-8 issues
           echo "📋 Testing Lambda function..."
           
-          # Create payload and encode it properly
-          echo '{"action":"create","data":{"name":"test"},"source":"ci"}' | base64 > payload.b64
+          # Create a simple test payload file with minimal content
+          printf '{"action":"create","data":{"name":"test"},"source":"ci"}' > test.json
           
-          # Invoke Lambda function with base64 encoded payload
+          # Verify the file was created correctly
+          echo "Payload file contents:"
+          cat test.json
+          echo ""
+          
+          # Use the file-based approach which should work reliably
           aws lambda invoke \
             --function-name "${{ steps.deploy-stack.outputs.lambda-function-name }}" \
-            --payload fileb://payload.b64 \
+            --payload file://test.json \
             response.json
           
           echo "📋 Lambda function response:"
           cat response.json
           
-          # Simple validation - just check if we got a response
+          # Basic validation
           if [[ -s response.json ]]; then
             echo "✅ Lambda function invoked successfully"
             
-            # Try to parse the response
-            if jq -e '.statusCode' response.json > /dev/null 2>&1; then
-              STATUS_CODE=$(jq -r '.statusCode' response.json)
+            # Try to extract status code if present
+            if grep -q "statusCode" response.json; then
+              STATUS_CODE=$(jq -r '.statusCode // "unknown"' response.json 2>/dev/null || echo "unknown")
               echo "Status Code: $STATUS_CODE"
               
               if [[ "$STATUS_CODE" == "200" ]]; then
                 echo "✅ Lambda function test passed!"
               else
-                echo "⚠️ Lambda function returned non-200 status"
+                echo "⚠️ Lambda function returned status: $STATUS_CODE"
               fi
             else
-              echo "✅ Lambda function executed (response format may vary)"
+              echo "✅ Lambda function executed (no status code in response)"
             fi
           else
             echo "❌ No response received from Lambda function"
