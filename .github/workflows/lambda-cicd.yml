@@ -362,14 +362,32 @@ jobs:
           # Select or create staging workspace
           terraform workspace select staging || terraform workspace new staging
           
+          # Import existing resources to avoid conflicts
+          echo "🔍 Importing existing resources..."
+          BUCKET_NAME="lambda-artifacts-staging-${{ secrets.AWS_ACCOUNT_ID }}"
+          if aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
+            terraform import aws_s3_bucket.lambda_artifacts "$BUCKET_NAME" || true
+          fi
+          
+          FUNCTION_NAME="lambda-function-staging"
+          if aws lambda get-function --function-name "$FUNCTION_NAME" 2>/dev/null; then
+            terraform import module.lambda_function.aws_lambda_function.this "$FUNCTION_NAME" || true
+          fi
+          
           # Plan infrastructure deployment
           terraform plan \
             -var="environment=staging" \
-            -var="lambda_function_name=lambda_function_staging" \
+            -var="lambda_function_name=lambda-function-staging" \
             -out=tfplan
           
-          # Apply infrastructure changes
-          terraform apply -auto-approve tfplan
+          # Apply with rollback on failure
+          if ! terraform apply -auto-approve tfplan; then
+            echo "❌ Terraform failed, rolling back..."
+            terraform destroy -auto-approve \
+              -var="environment=staging" \
+              -var="lambda_function_name=lambda-function-staging" || true
+            exit 1
+          fi
           
           echo "✅ Infrastructure deployment completed"
 
@@ -463,7 +481,7 @@ jobs:
 
           # Deploy using canary script
           ./scripts/deploy-lambda-canary.sh \
-            --function "lambda_function_staging" \
+            --function "lambda-function-staging" \
             --environment "staging" \
             --package "$PACKAGE_FILE" \
             --config "CodeDeployDefault.Lambda10PercentEvery5Minutes" \
@@ -503,7 +521,7 @@ jobs:
           sleep 30
           
           # Test Lambda function invocation
-          FUNCTION_NAME="lambda_function_staging"
+          FUNCTION_NAME="lambda-function-staging"
           
           echo "Testing Lambda function: $FUNCTION_NAME"
           
@@ -642,14 +660,37 @@ jobs:
           # Select or create production workspace
           terraform workspace select production || terraform workspace new production
           
+          # Import existing resources to avoid conflicts
+          echo "🔍 Importing existing resources..."
+          BUCKET_NAME="lambda-artifacts-production-${{ secrets.AWS_ACCOUNT_ID }}"
+          if aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
+            terraform import aws_s3_bucket.lambda_artifacts "$BUCKET_NAME" || true
+          fi
+          
+          FUNCTION_NAME="lambda-function-production"
+          if aws lambda get-function --function-name "$FUNCTION_NAME" 2>/dev/null; then
+            terraform import module.lambda_function.aws_lambda_function.this "$FUNCTION_NAME" || true
+          fi
+          
+          CODEDEPLOY_APP="lambda-app-production"
+          if aws deploy get-application --application-name "$CODEDEPLOY_APP" 2>/dev/null; then
+            terraform import aws_codedeploy_app.lambda_app "$CODEDEPLOY_APP" || true
+          fi
+          
           # Plan infrastructure deployment
           terraform plan \
             -var="environment=production" \
-            -var="lambda_function_name=lambda_function_production" \
+            -var="lambda_function_name=lambda-function-production" \
             -out=tfplan
           
-          # Apply infrastructure changes
-          terraform apply -auto-approve tfplan
+          # Apply with rollback on failure
+          if ! terraform apply -auto-approve tfplan; then
+            echo "❌ Terraform failed, rolling back..."
+            terraform destroy -auto-approve \
+              -var="environment=production" \
+              -var="lambda_function_name=lambda-function-production" || true
+            exit 1
+          fi
           
           echo "✅ Infrastructure deployment completed"
 
@@ -744,7 +785,7 @@ jobs:
 
           # Deploy using canary script
           ./scripts/deploy-lambda-canary.sh \
-            --function "lambda_function_production" \
+            --function "lambda-function-production" \
             --environment "production" \
             --package "$PACKAGE_FILE" \
             --config "CodeDeployDefault.Lambda10PercentEvery5Minutes" \
@@ -784,7 +825,7 @@ jobs:
           sleep 30
           
           # Test Lambda function invocation
-          FUNCTION_NAME="lambda_function_production"
+          FUNCTION_NAME="lambda-function-production"
           
           echo "Testing Lambda function: $FUNCTION_NAME"
           
@@ -863,7 +904,7 @@ jobs:
           chmod +x scripts/rollback-lambda-deployment.sh
 
           ./scripts/rollback-lambda-deployment.sh \
-            --function "lambda_function_staging" \
+            --function "lambda-function-staging" \
             --environment "staging" \
             --mode "emergency" \
             --region "${{ needs.setup.outputs.aws-region }}" \
@@ -876,7 +917,7 @@ jobs:
           echo "🔍 Verifying staging rollback was successful..."
           
           # Test the rolled-back function
-          FUNCTION_NAME="lambda_function_staging"
+          FUNCTION_NAME="lambda-function-staging"
           
           # Wait for rollback to stabilize
           sleep 30
@@ -942,7 +983,7 @@ jobs:
           chmod +x scripts/rollback-lambda-deployment.sh
 
           ./scripts/rollback-lambda-deployment.sh \
-            --function "lambda_function_production" \
+            --function "lambda-function-production" \
             --environment "production" \
             --mode "emergency" \
             --region "${{ needs.setup.outputs.aws-region }}" \
@@ -955,7 +996,7 @@ jobs:
           echo "🔍 Verifying production rollback was successful..."
           
           # Test the rolled-back function
-          FUNCTION_NAME="lambda_function_production"
+          FUNCTION_NAME="lambda-function-production"
           
           # Wait for rollback to stabilize
           sleep 30
