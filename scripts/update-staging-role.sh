@@ -73,7 +73,8 @@ cat > /tmp/staging-policy.json << EOF
                 "arn:aws:iam::${ACCOUNT_ID}:role/*staging*",
                 "arn:aws:iam::${ACCOUNT_ID}:role/lambda-function*staging*",
                 "arn:aws:iam::${ACCOUNT_ID}:role/CodeDeploy*staging*",
-                "arn:aws:iam::${ACCOUNT_ID}:role/GitHubActions-SecurityScan"
+                "arn:aws:iam::${ACCOUNT_ID}:role/GitHubActions-SecurityScan",
+                "arn:aws:iam::${ACCOUNT_ID}:role/GitHubActions-Lambda-Staging"
             ]
         },
         {

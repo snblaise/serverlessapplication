@@ -361,6 +361,7 @@ Resources:
                   - !Sub 'arn:aws:iam::${AWS::AccountId}:role/${LambdaFunctionName}*staging*'
                   - !Sub 'arn:aws:iam::${AWS::AccountId}:role/CodeDeploy*staging*'
                   - !Sub 'arn:aws:iam::${AWS::AccountId}:role/GitHubActions-SecurityScan'
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/GitHubActions-Lambda-Staging'
               - Effect: Allow
                 Action:
                   - iam:GetRole
