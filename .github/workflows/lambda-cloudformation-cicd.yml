@@ -361,23 +361,14 @@ jobs:
         run: |
           echo "📋 Testing Lambda function..."
           
-          # Create a simple test payload file with proper encoding
-          cat > test.json << 'EOF'
-          {"action":"create","data":{"name":"test"},"source":"ci"}
-          EOF
+          # Create test payload using base64 encoding to avoid UTF-8 issues
+          PAYLOAD='{"action":"create","data":{"name":"test"},"source":"ci"}'
+          echo "Test payload: $PAYLOAD"
           
-          # Verify the file was created correctly
-          echo "Payload file contents:"
-          cat test.json
-          echo ""
-          echo "File encoding check:"
-          file test.json
-          echo ""
-          
-          # Use the file-based approach which should work reliably
+          # Use direct payload approach with proper escaping
           aws lambda invoke \
             --function-name "${{ steps.deploy-stack.outputs.lambda-function-name }}" \
-            --payload file://test.json \
+            --payload "$PAYLOAD" \
             response.json
           
           echo "📋 Lambda function response:"
