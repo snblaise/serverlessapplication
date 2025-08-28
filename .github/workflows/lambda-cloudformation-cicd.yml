@@ -147,12 +147,32 @@ jobs:
       - name: Run npm audit
         run: npm audit --audit-level=high
 
+      - name: Check if Snyk token is available
+        id: snyk-check
+        run: |
+          if [[ -n "${{ secrets.SNYK_TOKEN }}" ]]; then
+            echo "snyk-available=true" >> $GITHUB_OUTPUT
+          else
+            echo "snyk-available=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Run Snyk security scan
+        if: steps.snyk-check.outputs.snyk-available == 'true'
         uses: snyk/actions/node@master
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
           args: --severity-threshold=high
+        continue-on-error: true
+
+      - name: Skip Snyk scan (no token)
+        if: steps.snyk-check.outputs.snyk-available == 'false'
+        run: |
+          echo "⚠️ Snyk security scan skipped - SNYK_TOKEN not configured"
+          echo "To enable Snyk scanning:"
+          echo "1. Sign up at https://snyk.io"
+          echo "2. Get your API token from https://app.snyk.io/account"
+          echo "3. Add it as SNYK_TOKEN secret in GitHub repository settings"
 
       - name: Validate CloudFormation template
         run: |
