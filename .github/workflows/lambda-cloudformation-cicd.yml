@@ -1,0 +1,423 @@
+name: Lambda CloudFormation CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'src/**'
+      - 'cloudformation/**'
+      - '.github/workflows/lambda-cloudformation-cicd.yml'
+      - 'package*.json'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'src/**'
+      - 'cloudformation/**'
+      - '.github/workflows/lambda-cloudformation-cicd.yml'
+      - 'package*.json'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+      force_deploy:
+        description: 'Force deployment even if no changes'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  AWS_REGION: us-east-1
+  NODE_VERSION: '18'
+
+jobs:
+  setup:
+    name: Setup and Determine Environment
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.env.outputs.environment }}
+      aws-region: ${{ steps.env.outputs.aws-region }}
+      staging-role-arn: ${{ steps.env.outputs.staging-role-arn }}
+      production-role-arn: ${{ steps.env.outputs.production-role-arn }}
+      security-scan-role-arn: ${{ steps.env.outputs.security-scan-role-arn }}
+      should-deploy: ${{ steps.env.outputs.should-deploy }}
+    
+    steps:
+      - name: Determine environment and settings
+        id: env
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            ENVIRONMENT="${{ github.event.inputs.environment }}"
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            ENVIRONMENT="staging"
+          else
+            ENVIRONMENT="staging"
+          fi
+          
+          echo "environment=${ENVIRONMENT}" >> $GITHUB_OUTPUT
+          echo "aws-region=${{ env.AWS_REGION }}" >> $GITHUB_OUTPUT
+          echo "staging-role-arn=arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/GitHubActions-Lambda-Staging" >> $GITHUB_OUTPUT
+          echo "production-role-arn=arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/GitHubActions-Lambda-Production" >> $GITHUB_OUTPUT
+          echo "security-scan-role-arn=arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/GitHubActions-SecurityScan" >> $GITHUB_OUTPUT
+          
+          # Determine if we should deploy
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "should-deploy=false" >> $GITHUB_OUTPUT
+          else
+            echo "should-deploy=true" >> $GITHUB_OUTPUT
+          fi
+          
+          echo "🎯 Environment: ${ENVIRONMENT}"
+          echo "🌍 AWS Region: ${{ env.AWS_REGION }}"
+          echo "🚀 Should Deploy: ${{ github.event_name != 'pull_request' }}"
+
+  lint-and-test:
+    name: Lint and Test
+    runs-on: ubuntu-latest
+    needs: setup
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run linting
+        run: npm run lint
+
+      - name: Run tests
+        run: npm test
+
+      - name: Generate test coverage
+        run: npm run test:coverage
+
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage/lcov.info
+          flags: unittests
+          name: codecov-umbrella
+
+  security-scan:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+    needs: setup
+    permissions:
+      id-token: write
+      contents: read
+      security-events: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials for security scanning
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ needs.setup.outputs.security-scan-role-arn }}
+          aws-region: ${{ needs.setup.outputs.aws-region }}
+          role-session-name: GitHubActions-SecurityScan
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run npm audit
+        run: npm audit --audit-level=high
+
+      - name: Run Snyk security scan
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high
+
+      - name: Validate CloudFormation template
+        run: |
+          aws cloudformation validate-template \
+            --template-body file://cloudformation/lambda-infrastructure.yml
+
+      - name: Run CloudFormation security analysis
+        run: |
+          # Install cfn-lint
+          pip install cfn-lint
+          
+          # Lint CloudFormation template
+          cfn-lint cloudformation/lambda-infrastructure.yml
+
+  build-and-package:
+    name: Build and Package Lambda
+    runs-on: ubuntu-latest
+    needs: [setup, lint-and-test]
+    if: needs.setup.outputs.should-deploy == 'true'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install production dependencies
+        run: npm ci --only=production
+
+      - name: Create Lambda deployment package
+        run: |
+          # Create deployment directory
+          mkdir -p dist
+          
+          # Copy source files
+          cp -r src/* dist/
+          cp -r node_modules dist/
+          
+          # Create ZIP package
+          cd dist
+          zip -r ../lambda-function.zip .
+          cd ..
+          
+          # Verify package
+          echo "📦 Lambda package created:"
+          ls -lh lambda-function.zip
+          unzip -l lambda-function.zip | head -20
+
+      - name: Upload Lambda package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lambda-package-${{ needs.setup.outputs.environment }}
+          path: lambda-function.zip
+          retention-days: 30
+
+  deploy-infrastructure:
+    name: Deploy Infrastructure
+    runs-on: ubuntu-latest
+    needs: [setup, build-and-package, security-scan]
+    if: needs.setup.outputs.should-deploy == 'true'
+    environment: ${{ needs.setup.outputs.environment }}
+    permissions:
+      id-token: write
+      contents: read
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ needs.setup.outputs.environment == 'production' && needs.setup.outputs.production-role-arn || needs.setup.outputs.staging-role-arn }}
+          aws-region: ${{ needs.setup.outputs.aws-region }}
+          role-session-name: GitHubActions-Deploy-${{ needs.setup.outputs.environment }}
+
+      - name: Download Lambda package
+        uses: actions/download-artifact@v4
+        with:
+          name: lambda-package-${{ needs.setup.outputs.environment }}
+
+      - name: Deploy CloudFormation stack
+        id: deploy-stack
+        run: |
+          STACK_NAME="lambda-infrastructure-${{ needs.setup.outputs.environment }}"
+          
+          # Check if stack exists
+          if aws cloudformation describe-stacks --stack-name "$STACK_NAME" &> /dev/null; then
+            echo "Stack exists - updating"
+            ACTION="update-stack"
+            WAIT_CONDITION="stack-update-complete"
+          else
+            echo "Stack does not exist - creating"
+            ACTION="create-stack"
+            WAIT_CONDITION="stack-create-complete"
+          fi
+          
+          # Deploy stack
+          aws cloudformation $ACTION \
+            --stack-name "$STACK_NAME" \
+            --template-body file://cloudformation/lambda-infrastructure.yml \
+            --parameters file://cloudformation/parameters/${{ needs.setup.outputs.environment }}.json \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --tags Key=Environment,Value=${{ needs.setup.outputs.environment }} \
+                   Key=Project,Value=lambda-production-readiness \
+                   Key=ManagedBy,Value=cloudformation \
+                   Key=GitHubRepo,Value=${{ github.repository }} \
+                   Key=GitHubSHA,Value=${{ github.sha }}
+          
+          # Wait for completion
+          echo "Waiting for stack deployment to complete..."
+          aws cloudformation wait $WAIT_CONDITION --stack-name "$STACK_NAME"
+          
+          # Get outputs
+          aws cloudformation describe-stacks \
+            --stack-name "$STACK_NAME" \
+            --query 'Stacks[0].Outputs' > stack-outputs.json
+          
+          # Extract key outputs
+          LAMBDA_FUNCTION_NAME=$(jq -r '.[] | select(.OutputKey=="LambdaFunctionName") | .OutputValue' stack-outputs.json)
+          S3_BUCKET=$(jq -r '.[] | select(.OutputKey=="S3ArtifactsBucket") | .OutputValue' stack-outputs.json)
+          CODEDEPLOY_APP=$(jq -r '.[] | select(.OutputKey=="CodeDeployApplicationName") | .OutputValue' stack-outputs.json)
+          
+          echo "lambda-function-name=$LAMBDA_FUNCTION_NAME" >> $GITHUB_OUTPUT
+          echo "s3-bucket=$S3_BUCKET" >> $GITHUB_OUTPUT
+          echo "codedeploy-app=$CODEDEPLOY_APP" >> $GITHUB_OUTPUT
+          
+          echo "✅ Stack deployment completed successfully"
+          echo "📋 Lambda Function: $LAMBDA_FUNCTION_NAME"
+          echo "📋 S3 Bucket: $S3_BUCKET"
+          echo "📋 CodeDeploy App: $CODEDEPLOY_APP"
+
+      - name: Upload Lambda package to S3
+        run: |
+          S3_KEY="deployments/${{ github.sha }}/lambda-function.zip"
+          
+          aws s3 cp lambda-function.zip \
+            s3://${{ steps.deploy-stack.outputs.s3-bucket }}/$S3_KEY
+          
+          echo "📦 Lambda package uploaded to S3"
+          echo "S3 Location: s3://${{ steps.deploy-stack.outputs.s3-bucket }}/$S3_KEY"
+
+      - name: Update Lambda function code
+        run: |
+          # Update Lambda function with new code
+          aws lambda update-function-code \
+            --function-name "${{ steps.deploy-stack.outputs.lambda-function-name }}" \
+            --s3-bucket "${{ steps.deploy-stack.outputs.s3-bucket }}" \
+            --s3-key "deployments/${{ github.sha }}/lambda-function.zip"
+          
+          # Wait for update to complete
+          aws lambda wait function-updated \
+            --function-name "${{ steps.deploy-stack.outputs.lambda-function-name }}"
+          
+          echo "✅ Lambda function code updated successfully"
+
+      - name: Test Lambda function
+        run: |
+          # Invoke Lambda function to test
+          aws lambda invoke \
+            --function-name "${{ steps.deploy-stack.outputs.lambda-function-name }}" \
+            --payload '{"test": true, "source": "github-actions"}' \
+            response.json
+          
+          echo "📋 Lambda function response:"
+          cat response.json
+          
+          # Verify response
+          if jq -e '.statusCode == 200' response.json > /dev/null; then
+            echo "✅ Lambda function test passed"
+          else
+            echo "❌ Lambda function test failed"
+            exit 1
+          fi
+
+      - name: Save deployment info
+        run: |
+          # Create deployment summary
+          cat > deployment-summary.json << EOF
+          {
+            "environment": "${{ needs.setup.outputs.environment }}",
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "git_sha": "${{ github.sha }}",
+            "git_ref": "${{ github.ref }}",
+            "lambda_function_name": "${{ steps.deploy-stack.outputs.lambda-function-name }}",
+            "s3_bucket": "${{ steps.deploy-stack.outputs.s3-bucket }}",
+            "codedeploy_application": "${{ steps.deploy-stack.outputs.codedeploy-app }}",
+            "aws_region": "${{ needs.setup.outputs.aws-region }}"
+          }
+          EOF
+          
+          echo "📋 Deployment Summary:"
+          cat deployment-summary.json
+
+      - name: Upload deployment summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-summary-${{ needs.setup.outputs.environment }}
+          path: deployment-summary.json
+          retention-days: 90
+
+  manual-rollback:
+    name: Manual Rollback (if needed)
+    runs-on: ubuntu-latest
+    needs: [setup, deploy-infrastructure]
+    if: failure() && needs.setup.outputs.environment == 'production'
+    environment: production-rollback
+    permissions:
+      id-token: write
+      contents: read
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ needs.setup.outputs.production-role-arn }}
+          aws-region: ${{ needs.setup.outputs.aws-region }}
+          role-session-name: GitHubActions-Rollback-Production
+
+      - name: Rollback Lambda function
+        run: |
+          FUNCTION_NAME="${{ needs.deploy-infrastructure.outputs.lambda-function-name }}"
+          
+          # Get previous version
+          PREVIOUS_VERSION=$(aws lambda list-versions-by-function \
+            --function-name "$FUNCTION_NAME" \
+            --query 'Versions[-2].Version' \
+            --output text)
+          
+          if [[ "$PREVIOUS_VERSION" != "None" && "$PREVIOUS_VERSION" != "\$LATEST" ]]; then
+            echo "Rolling back to version: $PREVIOUS_VERSION"
+            
+            # Update alias to point to previous version
+            aws lambda update-alias \
+              --function-name "$FUNCTION_NAME" \
+              --name "live" \
+              --function-version "$PREVIOUS_VERSION"
+            
+            echo "✅ Rollback completed successfully"
+          else
+            echo "⚠️ No previous version found for rollback"
+          fi
+
+  notify:
+    name: Notify Deployment Status
+    runs-on: ubuntu-latest
+    needs: [setup, deploy-infrastructure]
+    if: always() && needs.setup.outputs.should-deploy == 'true'
+    
+    steps:
+      - name: Notify deployment success
+        if: needs.deploy-infrastructure.result == 'success'
+        run: |
+          echo "🎉 Deployment to ${{ needs.setup.outputs.environment }} completed successfully!"
+          echo "Environment: ${{ needs.setup.outputs.environment }}"
+          echo "Git SHA: ${{ github.sha }}"
+          echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+      - name: Notify deployment failure
+        if: needs.deploy-infrastructure.result == 'failure'
+        run: |
+          echo "❌ Deployment to ${{ needs.setup.outputs.environment }} failed!"
+          echo "Environment: ${{ needs.setup.outputs.environment }}"
+          echo "Git SHA: ${{ github.sha }}"
+          echo "Please check the logs and consider rollback if needed."
+          exit 1

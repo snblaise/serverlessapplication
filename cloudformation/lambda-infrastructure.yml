@@ -1,0 +1,616 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Complete AWS Lambda Infrastructure with CI/CD Pipeline - Single Template for All Environments'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: staging
+    AllowedValues:
+      - staging
+      - production
+    Description: Environment name (staging or production)
+  
+  LambdaFunctionName:
+    Type: String
+    Default: lambda-function
+    Description: Base name for the Lambda function
+  
+  GitHubRepository:
+    Type: String
+    Default: snblaise/serverlessapplication
+    Description: GitHub repository in format owner/repo
+  
+  LambdaTimeout:
+    Type: Number
+    Default: 30
+    MinValue: 1
+    MaxValue: 900
+    Description: Lambda function timeout in seconds
+  
+  LambdaMemorySize:
+    Type: Number
+    Default: 256
+    AllowedValues: [128, 256, 512, 1024, 2048, 3008]
+    Description: Lambda function memory size in MB
+  
+  ErrorThreshold:
+    Type: Number
+    Default: 5
+    Description: CloudWatch alarm threshold for Lambda errors
+  
+  DurationThreshold:
+    Type: Number
+    Default: 10000
+    Description: CloudWatch alarm threshold for Lambda duration (ms)
+  
+  ThrottleThreshold:
+    Type: Number
+    Default: 1
+    Description: CloudWatch alarm threshold for Lambda throttles
+
+Conditions:
+  IsProduction: !Equals [!Ref Environment, production]
+  IsStaging: !Equals [!Ref Environment, staging]
+
+Resources:
+  # S3 Bucket for Lambda Artifacts
+  LambdaArtifactsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'lambda-artifacts-${Environment}-${AWS::AccountId}'
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldVersions
+            Status: Enabled
+            NoncurrentVersionExpirationInDays: 30
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: lambda-production-readiness
+        - Key: ManagedBy
+          Value: cloudformation
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+
+  # Lambda Execution Role
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${LambdaFunctionName}-${Environment}-execution-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess
+      Policies:
+        - PolicyName: DLQPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                Resource: !GetAtt DeadLetterQueue.Arn
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: lambda-production-readiness
+        - Key: ManagedBy
+          Value: cloudformation
+
+  # Dead Letter Queue
+  DeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${LambdaFunctionName}-${Environment}-dlq'
+      MessageRetentionPeriod: 1209600  # 14 days
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: lambda-production-readiness
+        - Key: ManagedBy
+          Value: cloudformation
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+
+  # Lambda Function
+  LambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${LambdaFunctionName}-${Environment}'
+      Runtime: nodejs18.x
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: !Ref LambdaTimeout
+      MemorySize: !Ref LambdaMemorySize
+      Code:
+        ZipFile: |
+          exports.handler = async (event) => {
+              console.log('Event:', JSON.stringify(event, null, 2));
+              return {
+                  statusCode: 200,
+                  body: JSON.stringify({
+                      message: 'Hello from Lambda!',
+                      environment: process.env.ENVIRONMENT,
+                      timestamp: new Date().toISOString()
+                  })
+              };
+          };
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          NODE_ENV: !Ref Environment
+          LOG_LEVEL: !If [IsProduction, info, debug]
+      DeadLetterConfig:
+        TargetArn: !GetAtt DeadLetterQueue.Arn
+      TracingConfig:
+        Mode: Active
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: lambda-production-readiness
+        - Key: ManagedBy
+          Value: cloudformation
+
+  # Lambda Alias
+  LambdaAlias:
+    Type: AWS::Lambda::Alias
+    Properties:
+      FunctionName: !Ref LambdaFunction
+      FunctionVersion: $LATEST
+      Name: live
+      Description: Live alias for production traffic
+
+  # CodeDeploy Service Role
+  CodeDeployServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'CodeDeployServiceRole-${Environment}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codedeploy.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSCodeDeployRoleForLambda
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: lambda-production-readiness
+        - Key: ManagedBy
+          Value: cloudformation
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+
+  # CodeDeploy Application
+  CodeDeployApplication:
+    Type: AWS::CodeDeploy::Application
+    Properties:
+      ApplicationName: !Sub 'lambda-app-${Environment}'
+      ComputePlatform: Lambda
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: lambda-production-readiness
+        - Key: ManagedBy
+          Value: cloudformation
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+
+  # CodeDeploy Deployment Group
+  CodeDeployDeploymentGroup:
+    Type: AWS::CodeDeploy::DeploymentGroup
+    Properties:
+      ApplicationName: !Ref CodeDeployApplication
+      DeploymentGroupName: lambda-deployment-group
+      ServiceRoleArn: !GetAtt CodeDeployServiceRole.Arn
+      DeploymentConfigName: !If 
+        - IsProduction
+        - CodeDeployDefault.LambdaCanary10Percent10Minutes
+        - CodeDeployDefault.LambdaCanary10Percent5Minutes
+      DeploymentStyle:
+        DeploymentType: BLUE_GREEN
+        DeploymentOption: WITH_TRAFFIC_CONTROL
+      AutoRollbackConfiguration:
+        Enabled: true
+        Events:
+          - DEPLOYMENT_FAILURE
+          - DEPLOYMENT_STOP_ON_ALARM
+
+  # CloudWatch Alarms
+  LambdaErrorRateAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'lambda-error-rate-${Environment}'
+      AlarmDescription: This metric monitors lambda error rate
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: !Ref ErrorThreshold
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref LambdaFunction
+      TreatMissingData: missing
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: lambda-production-readiness
+        - Key: ManagedBy
+          Value: cloudformation
+
+  LambdaDurationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'lambda-duration-${Environment}'
+      AlarmDescription: This metric monitors lambda duration
+      MetricName: Duration
+      Namespace: AWS/Lambda
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: !Ref DurationThreshold
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref LambdaFunction
+      TreatMissingData: missing
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: lambda-production-readiness
+        - Key: ManagedBy
+          Value: cloudformation
+
+  LambdaThrottleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'lambda-throttle-${Environment}'
+      AlarmDescription: This metric monitors lambda throttles
+      MetricName: Throttles
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: !Ref ThrottleThreshold
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref LambdaFunction
+      TreatMissingData: missing
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: lambda-production-readiness
+        - Key: ManagedBy
+          Value: cloudformation
+
+  # GitHub OIDC Provider (only create if it doesn't exist)
+  GitHubOIDCProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+        - 1c58a3a8518e8759bf075b76b750d4f2df264fcd
+      Tags:
+        - Key: Name
+          Value: GitHub Actions OIDC Provider
+        - Key: Environment
+          Value: bootstrap
+        - Key: Project
+          Value: lambda-production-readiness
+        - Key: ManagedBy
+          Value: cloudformation
+
+  # GitHub Actions IAM Role for Staging
+  GitHubActionsStagingRole:
+    Type: AWS::IAM::Role
+    Condition: IsStaging
+    Properties:
+      RoleName: GitHubActions-Lambda-Staging
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOIDCProvider
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                'token.actions.githubusercontent.com:aud': sts.amazonaws.com
+              StringLike:
+                'token.actions.githubusercontent.com:sub': !Sub 'repo:${GitHubRepository}:*'
+      Policies:
+        - PolicyName: GitHubActions-Lambda-staging-Policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 'lambda:*'
+                Resource:
+                  - !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:*staging*'
+                  - !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${LambdaFunctionName}-staging*'
+              - Effect: Allow
+                Action: 's3:*'
+                Resource:
+                  - !Sub 'arn:aws:s3:::*staging*'
+                  - !Sub 'arn:aws:s3:::*staging*/*'
+                  - !Sub 'arn:aws:s3:::lambda-artifacts-staging*'
+                  - !Sub 'arn:aws:s3:::lambda-artifacts-staging*/*'
+              - Effect: Allow
+                Action: 'iam:*'
+                Resource:
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/*staging*'
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/${LambdaFunctionName}*staging*'
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/CodeDeploy*staging*'
+              - Effect: Allow
+                Action:
+                  - iam:GetRole
+                  - iam:GetRolePolicy
+                  - iam:ListRolePolicies
+                  - iam:ListAttachedRolePolicies
+                  - iam:GetOpenIDConnectProvider
+                  - iam:ListOpenIDConnectProviders
+                Resource: '*'
+              - Effect: Allow
+                Action: 'codedeploy:*'
+                Resource: '*'
+              - Effect: Allow
+                Action: 'cloudformation:*'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 'cloudwatch:*'
+                  - 'logs:*'
+                Resource: '*'
+              - Effect: Allow
+                Action: 'sqs:*'
+                Resource: !Sub 'arn:aws:sqs:${AWS::Region}:${AWS::AccountId}:*staging*'
+      Tags:
+        - Key: Environment
+          Value: staging
+        - Key: Project
+          Value: lambda-production-readiness
+        - Key: ManagedBy
+          Value: cloudformation
+
+  # GitHub Actions IAM Role for Production
+  GitHubActionsProductionRole:
+    Type: AWS::IAM::Role
+    Condition: IsProduction
+    Properties:
+      RoleName: GitHubActions-Lambda-Production
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOIDCProvider
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                'token.actions.githubusercontent.com:aud': sts.amazonaws.com
+              StringLike:
+                'token.actions.githubusercontent.com:sub': !Sub 'repo:${GitHubRepository}:*'
+      Policies:
+        - PolicyName: GitHubActions-Lambda-production-Policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 'lambda:*'
+                Resource:
+                  - !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:*production*'
+                  - !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${LambdaFunctionName}-production*'
+              - Effect: Allow
+                Action: 's3:*'
+                Resource:
+                  - !Sub 'arn:aws:s3:::*production*'
+                  - !Sub 'arn:aws:s3:::*production*/*'
+                  - !Sub 'arn:aws:s3:::lambda-artifacts-production*'
+                  - !Sub 'arn:aws:s3:::lambda-artifacts-production*/*'
+              - Effect: Allow
+                Action: 'iam:*'
+                Resource:
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/*production*'
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/${LambdaFunctionName}*production*'
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/CodeDeploy*production*'
+              - Effect: Allow
+                Action:
+                  - iam:GetRole
+                  - iam:GetRolePolicy
+                  - iam:ListRolePolicies
+                  - iam:ListAttachedRolePolicies
+                  - iam:GetOpenIDConnectProvider
+                  - iam:ListOpenIDConnectProviders
+                Resource: '*'
+              - Effect: Allow
+                Action: 'codedeploy:*'
+                Resource: '*'
+              - Effect: Allow
+                Action: 'cloudformation:*'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 'cloudwatch:*'
+                  - 'logs:*'
+                Resource: '*'
+              - Effect: Allow
+                Action: 'sqs:*'
+                Resource: !Sub 'arn:aws:sqs:${AWS::Region}:${AWS::AccountId}:*production*'
+      Tags:
+        - Key: Environment
+          Value: production
+        - Key: Project
+          Value: lambda-production-readiness
+        - Key: ManagedBy
+          Value: cloudformation
+
+  # GitHub Actions Security Scan Role
+  GitHubActionsSecurityScanRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: GitHubActions-SecurityScan
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOIDCProvider
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                'token.actions.githubusercontent.com:aud': sts.amazonaws.com
+              StringLike:
+                'token.actions.githubusercontent.com:sub': !Sub 'repo:${GitHubRepository}:*'
+      Policies:
+        - PolicyName: GitHubActions-SecurityScan-Policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - securityhub:BatchImportFindings
+                  - securityhub:DescribeHub
+                  - securityhub:GetFindings
+                  - securityhub:EnableSecurityHub
+                  - securityhub:GetEnabledStandards
+                  - securityhub:BatchUpdateFindings
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/github-actions/security-scan*'
+      Tags:
+        - Key: Environment
+          Value: security
+        - Key: Project
+          Value: lambda-production-readiness
+        - Key: ManagedBy
+          Value: cloudformation
+
+Outputs:
+  LambdaFunctionArn:
+    Description: ARN of the Lambda function
+    Value: !GetAtt LambdaFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-LambdaFunctionArn'
+
+  LambdaFunctionName:
+    Description: Name of the Lambda function
+    Value: !Ref LambdaFunction
+    Export:
+      Name: !Sub '${AWS::StackName}-LambdaFunctionName'
+
+  LambdaAliasArn:
+    Description: ARN of the Lambda alias
+    Value: !Ref LambdaAlias
+    Export:
+      Name: !Sub '${AWS::StackName}-LambdaAliasArn'
+
+  S3ArtifactsBucket:
+    Description: S3 bucket for Lambda artifacts
+    Value: !Ref LambdaArtifactsBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-S3ArtifactsBucket'
+
+  CodeDeployApplicationName:
+    Description: CodeDeploy application name
+    Value: !Ref CodeDeployApplication
+    Export:
+      Name: !Sub '${AWS::StackName}-CodeDeployApplicationName'
+
+  CodeDeployDeploymentGroupName:
+    Description: CodeDeploy deployment group name
+    Value: !Ref CodeDeployDeploymentGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-CodeDeployDeploymentGroupName'
+
+  CloudWatchAlarms:
+    Description: CloudWatch alarm names
+    Value: !Sub |
+      Error Rate: ${LambdaErrorRateAlarm}
+      Duration: ${LambdaDurationAlarm}
+      Throttle: ${LambdaThrottleAlarm}
+    Export:
+      Name: !Sub '${AWS::StackName}-CloudWatchAlarms'
+
+  GitHubOIDCProviderArn:
+    Description: GitHub OIDC Provider ARN
+    Value: !Ref GitHubOIDCProvider
+    Export:
+      Name: !Sub '${AWS::StackName}-GitHubOIDCProviderArn'
+
+  GitHubActionsStagingRoleArn:
+    Condition: IsStaging
+    Description: GitHub Actions Staging Role ARN
+    Value: !GetAtt GitHubActionsStagingRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-GitHubActionsStagingRoleArn'
+
+  GitHubActionsProductionRoleArn:
+    Condition: IsProduction
+    Description: GitHub Actions Production Role ARN
+    Value: !GetAtt GitHubActionsProductionRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-GitHubActionsProductionRoleArn'
+
+  GitHubActionsSecurityScanRoleArn:
+    Description: GitHub Actions Security Scan Role ARN
+    Value: !GetAtt GitHubActionsSecurityScanRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-GitHubActionsSecurityScanRoleArn'
+
+  Environment:
+    Description: Environment name
+    Value: !Ref Environment
+    Export:
+      Name: !Sub '${AWS::StackName}-Environment'
+
+  AWSRegion:
+    Description: AWS Region
+    Value: !Ref AWS::Region
+    Export:
+      Name: !Sub '${AWS::StackName}-AWSRegion'
+
+  AWSAccountId:
+    Description: AWS Account ID
+    Value: !Ref AWS::AccountId
+    Export:
+      Name: !Sub '${AWS::StackName}-AWSAccountId'

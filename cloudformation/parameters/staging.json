@@ -1,0 +1,34 @@
+[
+  {
+    "ParameterKey": "Environment",
+    "ParameterValue": "staging"
+  },
+  {
+    "ParameterKey": "LambdaFunctionName",
+    "ParameterValue": "lambda-function"
+  },
+  {
+    "ParameterKey": "GitHubRepository",
+    "ParameterValue": "snblaise/serverlessapplication"
+  },
+  {
+    "ParameterKey": "LambdaTimeout",
+    "ParameterValue": "30"
+  },
+  {
+    "ParameterKey": "LambdaMemorySize",
+    "ParameterValue": "256"
+  },
+  {
+    "ParameterKey": "ErrorThreshold",
+    "ParameterValue": "5"
+  },
+  {
+    "ParameterKey": "DurationThreshold",
+    "ParameterValue": "10000"
+  },
+  {
+    "ParameterKey": "ThrottleThreshold",
+    "ParameterValue": "1"
+  }
+]
