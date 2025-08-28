@@ -3,6 +3,8 @@
 lambda-function.zip
 package-manifest.json
 *.sha256
+build-report.json
+deployment-metadata.json
 
 # Terraform files
 *.tfstate
@@ -61,13 +63,19 @@ coverage.xml
 *.cover
 .hypothesis/
 
-# Node.js (if using Node.js Lambda functions)
+# Node.js and TypeScript
 node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 # package-lock.json (commented out - needed for GitHub Actions caching)
 yarn.lock
+
+# TypeScript
+dist/
+*.tsbuildinfo
+*.d.ts.map
+*.js.map
 
 # IDE and editor files
 .vscode/
@@ -117,8 +125,10 @@ samconfig.toml
 
 # CDK (if using AWS CDK)
 cdk.out/
-*.d.ts
-*.js.map
+
+# TypeScript compiled output (keep these ignored since we compile during build)
+dist/
+*.tsbuildinfo
 
 # Serverless Framework (if using)
 .serverless/
@@ -131,9 +141,15 @@ test-report.html
 
 # Build artifacts
 build/
-dist/
 target/
+
+# TypeScript and Jest coverage
 coverage/
+*.lcov
+.nyc_output/
+
+# ESLint cache
+.eslintcache
 
 # Local configuration overrides
 config.local.json
